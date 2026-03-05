@@ -1,20 +1,16 @@
 """
-Rolling-Window Bayesian Dynamic Factor Model Forecasting
-Using PyMC (v5+) for FRED-MD style macroeconomic data
-
-This implementation uses Bayesian Factor Analysis to extract latent factors
-from high-dimensional macroeconomic data and produces month-by-month forecasts.
+Bayesian Dynamic Factor Model Forecasting for FRED-MD data
 
 Usage:
-    python forecast.py --input 2025-12-MD.csv --output forecasts.csv --n-factors 5 --initial-window 120
-    python forecast.py --input 2025-12-MD.csv --output forecasts.csv --forecast-horizon 12
+    python forecast.py -i 2025-12-MD.csv -o forecasts.csv
+    python forecast.py -i 2025-12-MD.csv -o forecasts.csv --forecast-horizon 12
+    python forecast.py -i 2025-12-MD.csv -o forecasts.csv --start-date 2020-01-01
+    python forecast.py -i 2025-12-MD.csv -o forecasts.csv --method bayesian
 """
 
 import argparse
 import numpy as np
 import pandas as pd
-import pymc as pm
-import pytensor.tensor as pt
 from dateutil.relativedelta import relativedelta
 import warnings
 warnings.filterwarnings('ignore')
@@ -25,32 +21,13 @@ warnings.filterwarnings('ignore')
 # =============================================================================
 
 def load_and_preprocess_data(filepath):
-    """
-    Load FRED-MD data and apply appropriate transformations.
-    
-    Transformation codes (tcode) as defined in FRED-QD/FRED-MD appendix:
-    1 = no transformation
-    2 = Δx_t (first difference)
-    3 = Δ²x_t (second difference)  
-    4 = log(x_t)
-    5 = Δlog(x_t) (log first difference)
-    6 = Δ²log(x_t) (log second difference)
-    7 = Δ(x_t/x_{t-1} - 1.0) (first difference of percent change)
-    """
-    # Load data
+    """Load FRED-MD data and extract transformation codes."""
     df = pd.read_csv(filepath)
-    
-    # Extract transformation codes (first row)
     transform_codes = df.iloc[0].copy()
-    
-    # Remove transformation row and set date index
     df = df.iloc[1:].copy()
     df['sasdate'] = pd.to_datetime(df['sasdate'], format='%m/%d/%Y')
     df.set_index('sasdate', inplace=True)
-    
-    # Convert to numeric
     df = df.apply(pd.to_numeric, errors='coerce')
-    
     return df, transform_codes
 
 
@@ -58,47 +35,32 @@ def apply_transformations(df, transform_codes):
     """
     Apply FRED-MD transformations to make series stationary.
     
-    Transformation codes (tcode):
-    1 = no transformation
-    2 = Δx_t
-    3 = Δ²x_t
-    4 = log(x_t)
-    5 = Δlog(x_t)
-    6 = Δ²log(x_t)
-    7 = Δ(x_t/x_{t-1} - 1.0)
+    Codes: 1=none, 2=diff, 3=diff2, 4=log, 5=log-diff, 6=log-diff2, 7=pct-diff
     """
     transformed = pd.DataFrame(index=df.index)
     
     for col in df.columns:
         if col == 'sasdate':
             continue
-            
         series = df[col].copy()
         try:
             code = int(float(transform_codes[col]))
         except (ValueError, KeyError):
-            code = 1  # Default to no transformation
+            code = 1
         
         if code == 1:
-            # No transformation
             transformed[col] = series
         elif code == 2:
-            # First difference: Δx_t
             transformed[col] = series.diff()
         elif code == 3:
-            # Second difference: Δ²x_t
             transformed[col] = series.diff().diff()
         elif code == 4:
-            # Log: log(x_t)
             transformed[col] = np.log(series.replace(0, np.nan))
         elif code == 5:
-            # Log first difference: Δlog(x_t)
             transformed[col] = np.log(series.replace(0, np.nan)).diff()
         elif code == 6:
-            # Log second difference: Δ²log(x_t)
             transformed[col] = np.log(series.replace(0, np.nan)).diff().diff()
         elif code == 7:
-            # First difference of percent change: Δ(x_t/x_{t-1} - 1.0)
             pct_change = series / series.shift(1) - 1.0
             transformed[col] = pct_change.diff()
         else:
@@ -107,363 +69,170 @@ def apply_transformations(df, transform_codes):
     return transformed
 
 
+def reverse_transformation_single(forecast_val, x_t1, x_t2, code):
+    """Reverse transformation for a single forecast value."""
+    try:
+        if pd.isna(forecast_val) or pd.isna(x_t1):
+            return np.nan
+        if code == 1:
+            return forecast_val
+        elif code == 2:
+            return x_t1 + forecast_val
+        elif code == 3:
+            return 2 * x_t1 - x_t2 + forecast_val
+        elif code == 4:
+            return np.exp(forecast_val)
+        elif code == 5:
+            return x_t1 * np.exp(forecast_val) if x_t1 > 0 else x_t1
+        elif code == 6:
+            if x_t1 > 0 and x_t2 > 0:
+                dlog_t1 = np.log(x_t1) - np.log(x_t2)
+                return x_t1 * np.exp(dlog_t1 + forecast_val)
+            return x_t1
+        elif code == 7:
+            if x_t1 != 0 and x_t2 != 0:
+                pct_t1 = x_t1 / x_t2 - 1.0
+                return x_t1 * (1 + pct_t1 + forecast_val)
+            return x_t1
+        else:
+            return forecast_val
+    except:
+        return np.nan
+
+
 def reverse_transformations(forecasts_transformed, df_original, transform_codes, forecast_dates):
-    """
-    Reverse the transformations to get forecasts back to original scale.
-    
-    Parameters:
-    -----------
-    forecasts_transformed : pd.DataFrame
-        Forecasts in transformed scale
-    df_original : pd.DataFrame
-        Original data (untransformed)
-    transform_codes : pd.Series
-        Transformation codes for each variable
-    forecast_dates : pd.DatetimeIndex
-        Dates of forecasts
-        
-    Returns:
-    --------
-    forecasts_original : pd.DataFrame
-        Forecasts in original scale
-    """
+    """Reverse transformations to original scale."""
     forecasts_original = pd.DataFrame(index=forecast_dates, columns=forecasts_transformed.columns)
     
     for col in forecasts_transformed.columns:
+        if col not in df_original.columns:
+            continue
         try:
             code = int(float(transform_codes[col]))
         except (ValueError, KeyError):
             code = 1
         
         forecast_vals = forecasts_transformed[col].values
+        orig_vals = df_original[col].values
         
-        # Get the last available original values needed for reversal
-        last_orig_idx = df_original.index.get_indexer([forecast_dates[0]], method='ffill')[0]
-        if last_orig_idx < 0:
-            last_orig_idx = 0
-            
         for i, date in enumerate(forecast_dates):
             fc_val = forecast_vals[i]
-            
             if i == 0:
-                # Use original data for lagged values
-                if last_orig_idx >= 1:
-                    x_t1 = df_original[col].iloc[last_orig_idx]
-                    x_t2 = df_original[col].iloc[last_orig_idx - 1] if last_orig_idx >= 2 else x_t1
-                else:
-                    x_t1 = df_original[col].iloc[0]
-                    x_t2 = x_t1
-            else:
-                # Use previous forecast
+                x_t1 = orig_vals[-1] if len(orig_vals) >= 1 else 0
+                x_t2 = orig_vals[-2] if len(orig_vals) >= 2 else x_t1
+            elif i == 1:
                 x_t1 = forecasts_original[col].iloc[i-1]
-                if i >= 2:
-                    x_t2 = forecasts_original[col].iloc[i-2]
-                elif last_orig_idx >= 1:
-                    x_t2 = df_original[col].iloc[last_orig_idx]
-                else:
-                    x_t2 = x_t1
-            
-            if code == 1:
-                # No transformation
-                forecasts_original.loc[date, col] = fc_val
-            elif code == 2:
-                # Reverse first difference: x_t = x_{t-1} + Δx_t
-                forecasts_original.loc[date, col] = x_t1 + fc_val
-            elif code == 3:
-                # Reverse second difference: x_t = 2*x_{t-1} - x_{t-2} + Δ²x_t
-                forecasts_original.loc[date, col] = 2*x_t1 - x_t2 + fc_val
-            elif code == 4:
-                # Reverse log: x_t = exp(log_x_t)
-                forecasts_original.loc[date, col] = np.exp(fc_val)
-            elif code == 5:
-                # Reverse log first difference: x_t = x_{t-1} * exp(Δlog(x_t))
-                forecasts_original.loc[date, col] = x_t1 * np.exp(fc_val)
-            elif code == 6:
-                # Reverse log second difference
-                if x_t1 > 0 and x_t2 > 0:
-                    dlog_t1 = np.log(x_t1) - np.log(x_t2)
-                    dlog_t = dlog_t1 + fc_val
-                    forecasts_original.loc[date, col] = x_t1 * np.exp(dlog_t)
-                else:
-                    forecasts_original.loc[date, col] = x_t1
-            elif code == 7:
-                # Reverse first difference of percent change
-                if x_t1 != 0 and x_t2 != 0:
-                    pct_change_t1 = x_t1 / x_t2 - 1.0
-                    pct_change_t = pct_change_t1 + fc_val
-                    forecasts_original.loc[date, col] = x_t1 * (1 + pct_change_t)
-                else:
-                    forecasts_original.loc[date, col] = x_t1
+                x_t2 = orig_vals[-1] if len(orig_vals) >= 1 else x_t1
             else:
-                forecasts_original.loc[date, col] = fc_val
+                x_t1 = forecasts_original[col].iloc[i-1]
+                x_t2 = forecasts_original[col].iloc[i-2]
+            
+            forecasts_original.loc[date, col] = reverse_transformation_single(fc_val, x_t1, x_t2, code)
     
     return forecasts_original.astype(float)
 
 
 def prepare_data_for_modeling(df, min_obs_ratio=0.8):
-    """
-    Prepare data for factor modeling:
-    - Remove series with too many missing values
-    - Standardize the data
-    - Handle remaining missing values
-    """
-    # Drop rows at the beginning that have many NaN due to differencing
+    """Prepare data for factor modeling."""
     df = df.iloc[2:].copy()
-    
-    # Calculate missing ratio for each column
     missing_ratio = df.isnull().sum() / len(df)
-    
-    # Keep columns with sufficient observations
     valid_cols = missing_ratio[missing_ratio < (1 - min_obs_ratio)].index.tolist()
     df_clean = df[valid_cols].copy()
-    
-    # Forward fill then backward fill remaining missing values
     df_clean = df_clean.ffill().bfill()
-    
-    # Drop any remaining columns with NaN
     df_clean = df_clean.dropna(axis=1, how='any')
     
-    # Standardize
     means = df_clean.mean()
-    stds = df_clean.std()
-    stds = stds.replace(0, 1)  # Avoid division by zero
-    
+    stds = df_clean.std().replace(0, 1)
     df_standardized = (df_clean - means) / stds
     
     return df_standardized, means, stds, df_clean.columns.tolist()
 
 
 # =============================================================================
-# 2. BAYESIAN DYNAMIC FACTOR MODEL
+# 2. FACTOR MODELS
 # =============================================================================
 
-class BayesianDynamicFactorModel:
-    """
-    Bayesian Dynamic Factor Model using PyMC.
+class EfficientFactorModel:
+    """Fast factor model using SVD + OLS AR(1). No MCMC."""
     
-    Model:
-        Y_t = Lambda * F_t + e_t,  e_t ~ N(0, Psi)
-        F_t = Phi * F_{t-1} + u_t,  u_t ~ N(0, Q)
-    
-    Where:
-        Y_t = N-dimensional observed data at time t
-        F_t = K-dimensional latent factors at time t
-        Lambda = N x K factor loading matrix
-        Phi = K x K factor transition matrix (VAR(1) for factors)
-        Psi = N x N diagonal idiosyncratic variance matrix
-    """
-    
-    def __init__(self, n_factors=5, ar_order=1):
-        """
-        Initialize the model.
-        
-        Parameters:
-        -----------
-        n_factors : int
-            Number of latent factors to extract
-        ar_order : int
-            AR order for factor dynamics (currently supports 1)
-        """
+    def __init__(self, n_factors=5):
         self.n_factors = n_factors
-        self.ar_order = ar_order
-        self.trace = None
-        self.model = None
-        self.factor_loadings = None
-        self.factor_ar_coefs = None
-        self.idiosyncratic_var = None
         
-    def fit(self, Y, n_samples=1000, n_tune=500, target_accept=0.9, cores=1):
-        """
-        Fit the Bayesian Dynamic Factor Model.
-        
-        Parameters:
-        -----------
-        Y : np.ndarray
-            T x N matrix of observations
-        n_samples : int
-            Number of MCMC samples
-        n_tune : int
-            Number of tuning samples
-        target_accept : float
-            Target acceptance rate for NUTS sampler
-        cores : int
-            Number of CPU cores for sampling
-        """
+    def fit(self, Y):
         T, N = Y.shape
-        K = self.n_factors
+        K = min(self.n_factors, min(T, N) - 1)
         
-        with pm.Model() as self.model:
-            # ==================
-            # PRIORS
-            # ==================
-            
-            # Factor loadings: Lambda ~ N(0, 1)
-            Lambda = pm.Normal('Lambda', mu=0, sigma=1, shape=(N, K))
-            
-            # Factor AR coefficients: diagonal VAR(1)
-            # Phi_diag ~ Uniform(-0.99, 0.99) for stationarity
-            Phi_diag = pm.Uniform('Phi_diag', lower=-0.99, upper=0.99, shape=K)
-            
-            # Idiosyncratic variances: Psi ~ InverseGamma
-            Psi = pm.InverseGamma('Psi', alpha=2, beta=1, shape=N)
-            
-            # ==================
-            # LATENT FACTORS
-            # ==================
-            
-            # Initial factor: F_0 ~ N(0, I)
-            F_init = pm.Normal('F_init', mu=0, sigma=1, shape=K)
-            
-            # Factor dynamics: F_t = Phi * F_{t-1} + u_t
-            F = [F_init]
-            for t in range(1, T):
-                F_t = pm.Normal(f'F_{t}', 
-                               mu=Phi_diag * F[t-1], 
-                               sigma=1, 
-                               shape=K)
-                F.append(F_t)
-            
-            # Stack factors
-            F_stacked = pt.stack(F, axis=0)  # T x K
-            
-            # ==================
-            # LIKELIHOOD
-            # ==================
-            
-            # Y_t = Lambda * F_t + e_t
-            mu = pt.dot(F_stacked, Lambda.T)  # T x N
-            
-            # Observation likelihood
-            Y_obs = pm.Normal('Y_obs', 
-                             mu=mu, 
-                             sigma=pt.sqrt(Psi), 
-                             observed=Y)
-            
-            # ==================
-            # INFERENCE
-            # ==================
-            
-            self.trace = pm.sample(
-                draws=n_samples,
-                tune=n_tune,
-                target_accept=target_accept,
-                cores=cores,
-                return_inferencedata=True,
-                progressbar=True
-            )
+        # SVD
+        U, S, Vt = np.linalg.svd(Y, full_matrices=False)
+        self.factors = U[:, :K] * S[:K]
+        self.loadings = Vt[:K, :].T
         
-        # Extract posterior means
-        self.factor_loadings = self.trace.posterior['Lambda'].mean(dim=['chain', 'draw']).values
-        self.factor_ar_coefs = self.trace.posterior['Phi_diag'].mean(dim=['chain', 'draw']).values
-        self.idiosyncratic_var = self.trace.posterior['Psi'].mean(dim=['chain', 'draw']).values
+        # AR(1) for each factor
+        self.ar_coefs = np.zeros(K)
+        self.ar_intercepts = np.zeros(K)
+        self.ar_sigmas = np.zeros(K)
         
-        # Extract factor estimates (posterior means)
-        self.factors = np.zeros((T, K))
-        self.factors[0] = self.trace.posterior['F_init'].mean(dim=['chain', 'draw']).values
-        for t in range(1, T):
-            self.factors[t] = self.trace.posterior[f'F_{t}'].mean(dim=['chain', 'draw']).values
+        for k in range(K):
+            f = self.factors[:, k]
+            if len(f) < 3:
+                continue
+            X = np.column_stack([np.ones(len(f)-1), f[:-1]])
+            y = f[1:]
+            try:
+                beta = np.linalg.lstsq(X, y, rcond=None)[0]
+                self.ar_intercepts[k] = beta[0]
+                self.ar_coefs[k] = np.clip(beta[1], -0.99, 0.99)
+                self.ar_sigmas[k] = max((y - X @ beta).std(), 0.01)
+            except:
+                self.ar_coefs[k] = 0.9
+                self.ar_sigmas[k] = 0.1
         
+        Y_hat = self.factors @ self.loadings.T
+        self.residual_std = np.maximum((Y - Y_hat).std(axis=0), 0.01)
         return self
     
-    def forecast(self, h=1, n_samples=1000):
-        """
-        Generate h-step ahead forecasts.
-        
-        Parameters:
-        -----------
-        h : int
-            Forecast horizon
-        n_samples : int
-            Number of samples for forecast distribution
-            
-        Returns:
-        --------
-        forecasts : np.ndarray
-            h x N matrix of point forecasts
-        forecast_std : np.ndarray
-            h x N matrix of forecast standard deviations
-        """
-        N = self.factor_loadings.shape[0]
-        K = self.n_factors
-        
-        # Get posterior samples
-        Lambda_samples = self.trace.posterior['Lambda'].values.reshape(-1, N, K)
-        Phi_samples = self.trace.posterior['Phi_diag'].values.reshape(-1, K)
-        Psi_samples = self.trace.posterior['Psi'].values.reshape(-1, N)
-        
-        n_posterior = Lambda_samples.shape[0]
-        sample_idx = np.random.choice(n_posterior, size=n_samples, replace=True)
-        
+    def forecast(self, h=1, n_samples=500):
+        N = self.loadings.shape[0]
+        K = self.factors.shape[1]
         forecasts_samples = np.zeros((n_samples, h, N))
         
-        for i, idx in enumerate(sample_idx):
-            Lambda = Lambda_samples[idx]
-            Phi_diag = Phi_samples[idx]
-            Psi = Psi_samples[idx]
-            
-            # Get last factor
-            F_current = self.factors[-1].copy()
-            
+        for i in range(n_samples):
+            F_curr = self.factors[-1].copy()
             for step in range(h):
-                # Forecast factor: F_{t+h} = Phi * F_{t+h-1} + u
-                F_next = Phi_diag * F_current + np.random.randn(K)
-                
-                # Forecast observation: Y_{t+h} = Lambda * F_{t+h} + e
-                Y_forecast = Lambda @ F_next + np.sqrt(Psi) * np.random.randn(N)
-                
-                forecasts_samples[i, step] = Y_forecast
-                F_current = F_next
+                F_next = self.ar_intercepts + self.ar_coefs * F_curr + self.ar_sigmas * np.random.randn(K)
+                Y_fc = self.loadings @ F_next + self.residual_std * np.random.randn(N)
+                forecasts_samples[i, step] = Y_fc
+                F_curr = F_next
         
-        # Point forecasts and uncertainty
-        forecasts = forecasts_samples.mean(axis=0)
-        forecast_std = forecasts_samples.std(axis=0)
-        
-        return forecasts, forecast_std
+        return forecasts_samples.mean(axis=0), forecasts_samples.std(axis=0)
 
 
-# =============================================================================
-# 3. SIMPLIFIED BAYESIAN FACTOR MODEL (Two-Step Approach)
-# =============================================================================
-
-class SimplifiedBayesianFactorModel:
+class BayesianFactorModel:
     """
-    A more computationally efficient Bayesian Factor Model.
-    Uses a two-step approach:
-    1. Extract factors using Bayesian PCA
-    2. Fit AR dynamics to factors
-    3. Forecast
+    Bayesian Factor Model using PyMC.
+    Uses a simpler formulation that avoids the graph complexity issue.
     """
     
     def __init__(self, n_factors=5):
         self.n_factors = n_factors
-        self.trace = None
-        self.factor_loadings = None
-        self.factors = None
-        self.ar_traces = []
-        self.ar_coefs = []
-        self.ar_intercepts = []
-        self.ar_sigmas = []
         
-    def fit(self, Y, n_samples=2000, n_tune=1000, cores=1):
-        """
-        Fit the simplified Bayesian factor model.
-        """
+    def fit(self, Y, n_samples=1000, n_tune=500, cores=1):
+        import pymc as pm
+        
         T, N = Y.shape
-        K = self.n_factors
+        K = min(self.n_factors, min(T, N) - 1)
+        
+        print(f"    Fitting Bayesian Factor Model: T={T}, N={N}, K={K}")
         
         with pm.Model() as model:
-            # Factor loadings
+            # Priors
             Lambda = pm.Normal('Lambda', mu=0, sigma=1, shape=(N, K))
-            
-            # Factors
             F = pm.Normal('F', mu=0, sigma=1, shape=(T, K))
-            
-            # Idiosyncratic variance
             Psi = pm.HalfNormal('Psi', sigma=1, shape=N)
             
             # Likelihood
             mu = pm.math.dot(F, Lambda.T)
-            Y_obs = pm.Normal('Y_obs', mu=mu, sigma=Psi, observed=Y)
+            pm.Normal('Y_obs', mu=mu, sigma=Psi, observed=Y)
             
             # Sample
             self.trace = pm.sample(
@@ -471,840 +240,470 @@ class SimplifiedBayesianFactorModel:
                 tune=n_tune,
                 cores=cores,
                 return_inferencedata=True,
-                progressbar=True
-            )
-        
-        # Extract estimates
-        self.factor_loadings = self.trace.posterior['Lambda'].mean(dim=['chain', 'draw']).values
-        self.factors = self.trace.posterior['F'].mean(dim=['chain', 'draw']).values
-        self.idiosyncratic_var = self.trace.posterior['Psi'].mean(dim=['chain', 'draw']).values ** 2
-        
-        # Fit AR(1) models to each factor using Bayesian estimation
-        self.ar_coefs = []
-        self.ar_intercepts = []
-        self.ar_sigmas = []
-        self.ar_traces = []
-        
-        for k in range(K):
-            factor_series = self.factors[:, k]
-            
-            with pm.Model() as ar_model:
-                phi = pm.Uniform('phi', lower=-0.99, upper=0.99)
-                sigma = pm.HalfNormal('sigma', sigma=1)
-                c = pm.Normal('c', mu=0, sigma=1)
-                
-                mu_ar = c + phi * factor_series[:-1]
-                obs = pm.Normal('obs', mu=mu_ar, sigma=sigma, observed=factor_series[1:])
-                
-                ar_trace = pm.sample(1000, tune=500, cores=1, 
-                                    return_inferencedata=True, progressbar=False)
-            
-            self.ar_coefs.append(ar_trace.posterior['phi'].mean(dim=['chain', 'draw']).values.item())
-            self.ar_intercepts.append(ar_trace.posterior['c'].mean(dim=['chain', 'draw']).values.item())
-            self.ar_sigmas.append(ar_trace.posterior['sigma'].mean(dim=['chain', 'draw']).values.item())
-            self.ar_traces.append(ar_trace)
-        
-        return self
-    
-    def forecast(self, h=1, n_samples=1000):
-        """
-        Generate forecasts.
-        """
-        N = self.factor_loadings.shape[0]
-        K = self.n_factors
-        
-        # Get posterior samples
-        Lambda_samples = self.trace.posterior['Lambda'].values.reshape(-1, N, K)
-        Psi_samples = self.trace.posterior['Psi'].values.reshape(-1, N)
-        
-        forecasts_samples = np.zeros((n_samples, h, N))
-        
-        for i in range(n_samples):
-            # Get random posterior sample
-            idx = np.random.randint(Lambda_samples.shape[0])
-            Lambda = Lambda_samples[idx]
-            Psi = Psi_samples[idx]
-            
-            F_current = self.factors[-1].copy()
-            
-            for step in range(h):
-                F_next = np.zeros(K)
-                for k in range(K):
-                    # Sample AR parameters from posterior
-                    phi_samples = self.ar_traces[k].posterior['phi'].values.flatten()
-                    c_samples = self.ar_traces[k].posterior['c'].values.flatten()
-                    sigma_samples = self.ar_traces[k].posterior['sigma'].values.flatten()
-                    
-                    ar_idx = np.random.randint(len(phi_samples))
-                    phi_k = phi_samples[ar_idx]
-                    c_k = c_samples[ar_idx]
-                    sigma_k = sigma_samples[ar_idx]
-                    
-                    F_next[k] = c_k + phi_k * F_current[k] + sigma_k * np.random.randn()
-                
-                Y_forecast = Lambda @ F_next + Psi * np.random.randn(N)
-                forecasts_samples[i, step] = Y_forecast
-                F_current = F_next
-        
-        return forecasts_samples.mean(axis=0), forecasts_samples.std(axis=0)
-
-
-# =============================================================================
-# 4. FULL BAYESIAN DYNAMIC FACTOR MODEL (State-Space Formulation)
-# =============================================================================
-
-class FullBayesianDFM:
-    """
-    Full Bayesian Dynamic Factor Model with proper state-space formulation.
-    
-    This implements the model:
-        Y_t = Lambda * F_t + e_t,  e_t ~ N(0, Psi)
-        F_t = Phi * F_{t-1} + u_t,  u_t ~ N(0, Sigma_F)
-    
-    With full Bayesian inference over all parameters.
-    """
-    
-    def __init__(self, n_factors=5):
-        self.n_factors = n_factors
-        self.trace = None
-        self.model = None
-        
-    def fit(self, Y, n_samples=2000, n_tune=1000, target_accept=0.9, cores=1):
-        """
-        Fit the full Bayesian DFM.
-        """
-        T, N = Y.shape
-        K = self.n_factors
-        
-        with pm.Model() as self.model:
-            # ===================
-            # HYPERPRIORS
-            # ===================
-            
-            # Prior precision for factor loadings
-            tau_lambda = pm.Gamma('tau_lambda', alpha=1, beta=1, shape=K)
-            
-            # ===================
-            # FACTOR LOADINGS
-            # ===================
-            
-            # Lambda ~ N(0, 1/tau_lambda) with identification constraints
-            Lambda_raw = pm.Normal('Lambda_raw', mu=0, sigma=1, shape=(N, K))
-            
-            # Apply soft identification (scale by tau)
-            Lambda = Lambda_raw / pt.sqrt(tau_lambda)
-            
-            # ===================
-            # FACTOR DYNAMICS
-            # ===================
-            
-            # AR(1) coefficients for factors
-            Phi_diag = pm.Uniform('Phi_diag', lower=-0.99, upper=0.99, shape=K)
-            
-            # Factor innovation standard deviation
-            sigma_F = pm.HalfCauchy('sigma_F', beta=1, shape=K)
-            
-            # ===================
-            # IDIOSYNCRATIC VARIANCE
-            # ===================
-            
-            # Psi ~ InverseGamma (idiosyncratic variance)
-            Psi = pm.InverseGamma('Psi', alpha=2, beta=1, shape=N)
-            
-            # ===================
-            # LATENT FACTORS (State-Space)
-            # ===================
-            
-            # Initial state
-            F_init = pm.Normal('F_init', mu=0, sigma=1, shape=K)
-            
-            # Factor innovations
-            F_innovations = pm.Normal('F_innovations', mu=0, sigma=1, shape=(T-1, K))
-            
-            # Construct factors iteratively
-            F_list = [F_init]
-            for t in range(T-1):
-                F_new = Phi_diag * F_list[-1] + sigma_F * F_innovations[t]
-                F_list.append(F_new)
-            
-            F_stacked = pt.stack(F_list, axis=0)  # T x K
-            
-            # ===================
-            # OBSERVATION MODEL
-            # ===================
-            
-            # Y_t = Lambda * F_t + e_t
-            mu_Y = pt.dot(F_stacked, Lambda.T)
-            
-            # Likelihood
-            Y_obs = pm.Normal('Y_obs', mu=mu_Y, sigma=pt.sqrt(Psi), observed=Y)
-            
-            # ===================
-            # INFERENCE
-            # ===================
-            
-            self.trace = pm.sample(
-                draws=n_samples,
-                tune=n_tune,
-                target_accept=target_accept,
-                cores=cores,
-                return_inferencedata=True,
                 progressbar=True,
-                init='adapt_diag'
+                target_accept=0.9
             )
         
-        # Extract posterior estimates
-        self._extract_posteriors(T)
-        
-        return self
-    
-    def _extract_posteriors(self, T):
-        """Extract posterior means and store for forecasting."""
-        K = self.n_factors
-        
-        tau_lambda = self.trace.posterior['tau_lambda'].mean(dim=['chain', 'draw']).values
-        Lambda_raw = self.trace.posterior['Lambda_raw'].mean(dim=['chain', 'draw']).values
-        
-        self.factor_loadings = Lambda_raw / np.sqrt(tau_lambda)
-        self.Phi_diag = self.trace.posterior['Phi_diag'].mean(dim=['chain', 'draw']).values
-        self.sigma_F = self.trace.posterior['sigma_F'].mean(dim=['chain', 'draw']).values
+        # Extract posteriors
+        self.loadings = self.trace.posterior['Lambda'].mean(dim=['chain', 'draw']).values
+        self.factors = self.trace.posterior['F'].mean(dim=['chain', 'draw']).values
         self.Psi = self.trace.posterior['Psi'].mean(dim=['chain', 'draw']).values
         
-        # Reconstruct factors
-        F_init = self.trace.posterior['F_init'].mean(dim=['chain', 'draw']).values
-        F_innovations = self.trace.posterior['F_innovations'].mean(dim=['chain', 'draw']).values
-        
-        self.factors = np.zeros((T, K))
-        self.factors[0] = F_init
-        for t in range(1, T):
-            self.factors[t] = self.Phi_diag * self.factors[t-1] + self.sigma_F * F_innovations[t-1]
-    
-    def forecast(self, h=1, n_samples=1000):
-        """
-        Generate h-step ahead forecasts with full uncertainty quantification.
-        """
-        N = self.factor_loadings.shape[0]
-        K = self.n_factors
-        
-        # Get posterior samples
-        tau_lambda_samples = self.trace.posterior['tau_lambda'].values.reshape(-1, K)
-        Lambda_raw_samples = self.trace.posterior['Lambda_raw'].values.reshape(-1, N, K)
-        Phi_samples = self.trace.posterior['Phi_diag'].values.reshape(-1, K)
-        sigma_F_samples = self.trace.posterior['sigma_F'].values.reshape(-1, K)
-        Psi_samples = self.trace.posterior['Psi'].values.reshape(-1, N)
-        
-        n_posterior = Phi_samples.shape[0]
-        forecasts_samples = np.zeros((n_samples, h, N))
-        
-        for i in range(n_samples):
-            # Sample from posterior
-            idx = np.random.randint(n_posterior)
-            
-            Lambda = Lambda_raw_samples[idx] / np.sqrt(tau_lambda_samples[idx])
-            Phi_diag = Phi_samples[idx]
-            sigma_F = sigma_F_samples[idx]
-            Psi = Psi_samples[idx]
-            
-            # Get last factor state
-            F_current = self.factors[-1].copy()
-            
-            for step in range(h):
-                # Forecast factors
-                F_next = Phi_diag * F_current + sigma_F * np.random.randn(K)
-                
-                # Forecast observations
-                Y_forecast = Lambda @ F_next + np.sqrt(Psi) * np.random.randn(N)
-                
-                forecasts_samples[i, step] = Y_forecast
-                F_current = F_next
-        
-        return forecasts_samples.mean(axis=0), forecasts_samples.std(axis=0)
-
-
-# =============================================================================
-# 5. EFFICIENT SVD-BASED FACTOR MODEL (For comparison/speed)
-# =============================================================================
-
-class EfficientFactorModel:
-    """
-    Efficient Factor Model using SVD for factor extraction.
-    Used as fallback or for faster computation.
-    """
-    
-    def __init__(self, n_factors=5):
-        self.n_factors = n_factors
-        self.factors = None
-        self.loadings = None
-        self.ar_coefs = None
-        self.residual_std = None
-        
-    def fit(self, Y):
-        """
-        Fit using SVD.
-        """
-        T, N = Y.shape
-        K = self.n_factors
-        
-        # SVD for factor extraction
-        U, S, Vt = np.linalg.svd(Y, full_matrices=False)
-        self.factors = U[:, :K] * S[:K]
-        self.loadings = Vt[:K, :].T
-        
-        # Fit AR(1) to each factor
+        # Fit AR(1) to factors (frequentist for simplicity)
         self.ar_coefs = np.zeros(K)
         self.ar_intercepts = np.zeros(K)
         self.ar_sigmas = np.zeros(K)
         
         for k in range(K):
             f = self.factors[:, k]
-            # OLS for AR(1): f_t = c + phi * f_{t-1} + e
             X = np.column_stack([np.ones(len(f)-1), f[:-1]])
             y = f[1:]
-            beta = np.linalg.lstsq(X, y, rcond=None)[0]
-            self.ar_intercepts[k] = beta[0]
-            self.ar_coefs[k] = np.clip(beta[1], -0.99, 0.99)
-            residuals = y - X @ beta
-            self.ar_sigmas[k] = residuals.std()
-        
-        # Residual variance for observations
-        Y_reconstructed = self.factors @ self.loadings.T
-        self.residual_std = (Y - Y_reconstructed).std(axis=0)
+            try:
+                beta = np.linalg.lstsq(X, y, rcond=None)[0]
+                self.ar_intercepts[k] = beta[0]
+                self.ar_coefs[k] = np.clip(beta[1], -0.99, 0.99)
+                self.ar_sigmas[k] = max((y - X @ beta).std(), 0.01)
+            except:
+                self.ar_coefs[k] = 0.9
+                self.ar_sigmas[k] = 0.1
         
         return self
     
     def forecast(self, h=1, n_samples=500):
-        """
-        Generate forecasts with uncertainty.
-        """
         N = self.loadings.shape[0]
-        K = self.n_factors
+        K = self.factors.shape[1]
+        
+        # Get posterior samples
+        Lambda_samples = self.trace.posterior['Lambda'].values.reshape(-1, N, K)
+        Psi_samples = self.trace.posterior['Psi'].values.reshape(-1, N)
+        n_posterior = Lambda_samples.shape[0]
         
         forecasts_samples = np.zeros((n_samples, h, N))
         
         for i in range(n_samples):
-            F_current = self.factors[-1].copy()
+            idx = np.random.randint(n_posterior)
+            Lambda = Lambda_samples[idx]
+            Psi = Psi_samples[idx]
+            
+            F_curr = self.factors[-1].copy()
+            for step in range(h):
+                F_next = self.ar_intercepts + self.ar_coefs * F_curr + self.ar_sigmas * np.random.randn(K)
+                Y_fc = Lambda @ F_next + Psi * np.random.randn(N)
+                forecasts_samples[i, step] = Y_fc
+                F_curr = F_next
+        
+        return forecasts_samples.mean(axis=0), forecasts_samples.std(axis=0)
+
+
+class BayesianARFactorModel:
+    """
+    Bayesian Factor Model with Bayesian AR(1) on factors.
+    Two-step approach to avoid graph complexity.
+    """
+    
+    def __init__(self, n_factors=5):
+        self.n_factors = n_factors
+        
+    def fit(self, Y, n_samples=1000, n_tune=500, cores=1):
+        import pymc as pm
+        
+        T, N = Y.shape
+        K = min(self.n_factors, min(T, N) - 1)
+        
+        print(f"    Fitting Bayesian AR Factor Model: T={T}, N={N}, K={K}")
+        
+        # Step 1: Extract factors using Bayesian PCA
+        print("    Step 1: Bayesian factor extraction...")
+        with pm.Model():
+            Lambda = pm.Normal('Lambda', mu=0, sigma=1, shape=(N, K))
+            F = pm.Normal('F', mu=0, sigma=1, shape=(T, K))
+            Psi = pm.HalfNormal('Psi', sigma=1, shape=N)
+            mu = pm.math.dot(F, Lambda.T)
+            pm.Normal('Y_obs', mu=mu, sigma=Psi, observed=Y)
+            
+            self.trace = pm.sample(
+                draws=n_samples,
+                tune=n_tune,
+                cores=cores,
+                return_inferencedata=True,
+                progressbar=True,
+                target_accept=0.9
+            )
+        
+        self.loadings = self.trace.posterior['Lambda'].mean(dim=['chain', 'draw']).values
+        self.factors = self.trace.posterior['F'].mean(dim=['chain', 'draw']).values
+        self.Psi = self.trace.posterior['Psi'].mean(dim=['chain', 'draw']).values
+        
+        # Step 2: Fit Bayesian AR(1) to each factor
+        print("    Step 2: Bayesian AR(1) for factors...")
+        self.ar_traces = []
+        self.ar_coefs = np.zeros(K)
+        self.ar_intercepts = np.zeros(K)
+        self.ar_sigmas = np.zeros(K)
+        
+        for k in range(K):
+            f = self.factors[:, k]
+            f_lag = f[:-1]
+            f_now = f[1:]
+            
+            with pm.Model():
+                c = pm.Normal('c', mu=0, sigma=1)
+                phi = pm.Uniform('phi', lower=-0.99, upper=0.99)
+                sigma = pm.HalfNormal('sigma', sigma=1)
+                
+                mu_ar = c + phi * f_lag
+                pm.Normal('f_obs', mu=mu_ar, sigma=sigma, observed=f_now)
+                
+                ar_trace = pm.sample(
+                    draws=500,
+                    tune=250,
+                    cores=1,
+                    return_inferencedata=True,
+                    progressbar=False
+                )
+            
+            self.ar_traces.append(ar_trace)
+            self.ar_coefs[k] = float(ar_trace.posterior['phi'].mean().values)
+            self.ar_intercepts[k] = float(ar_trace.posterior['c'].mean().values)
+            self.ar_sigmas[k] = float(ar_trace.posterior['sigma'].mean().values)
+        
+        return self
+    
+    def forecast(self, h=1, n_samples=500):
+        N = self.loadings.shape[0]
+        K = self.factors.shape[1]
+        
+        Lambda_samples = self.trace.posterior['Lambda'].values.reshape(-1, N, K)
+        Psi_samples = self.trace.posterior['Psi'].values.reshape(-1, N)
+        n_posterior = Lambda_samples.shape[0]
+        
+        forecasts_samples = np.zeros((n_samples, h, N))
+        
+        for i in range(n_samples):
+            idx = np.random.randint(n_posterior)
+            Lambda = Lambda_samples[idx]
+            Psi = Psi_samples[idx]
+            
+            F_curr = self.factors[-1].copy()
             
             for step in range(h):
                 F_next = np.zeros(K)
                 for k in range(K):
-                    F_next[k] = (self.ar_intercepts[k] + 
-                                self.ar_coefs[k] * F_current[k] + 
-                                self.ar_sigmas[k] * np.random.randn())
+                    # Sample from AR posterior
+                    ar_post = self.ar_traces[k].posterior
+                    ar_size = ar_post['phi'].values.size
+                    ar_idx = np.random.randint(ar_size)
+                    
+                    phi = ar_post['phi'].values.flatten()[ar_idx]
+                    c = ar_post['c'].values.flatten()[ar_idx]
+                    sigma = ar_post['sigma'].values.flatten()[ar_idx]
+                    
+                    F_next[k] = c + phi * F_curr[k] + sigma * np.random.randn()
                 
-                Y_forecast = self.loadings @ F_next + self.residual_std * np.random.randn(N)
-                forecasts_samples[i, step] = Y_forecast
-                F_current = F_next
+                Y_fc = Lambda @ F_next + Psi * np.random.randn(N)
+                forecasts_samples[i, step] = Y_fc
+                F_curr = F_next
         
         return forecasts_samples.mean(axis=0), forecasts_samples.std(axis=0)
 
 
 # =============================================================================
-# 6. ROLLING WINDOW FORECASTING
+# 3. MAIN FORECASTING FUNCTION
 # =============================================================================
 
-def rolling_window_forecast(df_standardized, means, stds, df_original, transform_codes,
-                           n_factors=5, 
-                           initial_window=120,
-                           forecast_horizon=0,
-                           method='simplified',
-                           n_samples=1000,
-                           n_tune=500,
-                           target_accept=0.9,
-                           cores=1,
-                           verbose=True):
+def run_forecasting(df_standardized, means, stds, df_original, transform_codes,
+                    n_factors=5, initial_window=120, forecast_horizon=0,
+                    start_date=None, method='efficient', n_samples=1000,
+                    n_tune=500, cores=1, verbose=True):
     """
-    Perform rolling-window forecasting using Bayesian Dynamic Factor Model.
-    
-    Parameters:
-    -----------
-    df_standardized : pd.DataFrame
-        Standardized transformed data
-    means : pd.Series
-        Means for destandardization
-    stds : pd.Series
-        Stds for destandardization
-    df_original : pd.DataFrame
-        Original untransformed data
-    transform_codes : pd.Series
-        Transformation codes for each variable
-    n_factors : int
-        Number of latent factors
-    initial_window : int
-        Initial training window size
-    forecast_horizon : int
-        Number of periods to forecast beyond the data (0 = in-sample only)
-    method : str
-        'full' - Full Bayesian DFM (slowest, most accurate)
-        'simplified' - Two-step Bayesian (medium speed)
-        'dynamic' - Bayesian DFM with explicit factor dynamics
-        'efficient' - SVD-based (fastest, least accurate)
-    n_samples : int
-        MCMC samples
-    n_tune : int
-        MCMC tuning samples
-    target_accept : float
-        Target acceptance rate for NUTS
-    cores : int
-        Number of CPU cores
-    verbose : bool
-        Print progress
-        
-    Returns:
-    --------
-    forecasts_original : pd.DataFrame
-        Forecasts in original scale
-    forecasts_transformed : pd.DataFrame
-        Forecasts in transformed scale
-    forecasts_standardized : pd.DataFrame
-        Forecasts in standardized scale
-    forecast_stds_df : pd.DataFrame
-        Forecast standard deviations
+    Run rolling window forecasting with optional future forecasts.
     """
-    
     T = len(df_standardized)
     columns = df_standardized.columns
+    N = len(columns)
     
-    forecast_dates = []
-    forecast_values_standardized = []
-    forecast_stds = []
+    # Determine start index
+    if start_date is not None:
+        start_date = pd.to_datetime(start_date)
+        start_idx = df_standardized.index.get_indexer([start_date], method='bfill')[0]
+        if start_idx < initial_window:
+            print(f"Warning: Adjusting start to index {initial_window}")
+            start_idx = initial_window
+    else:
+        start_idx = initial_window
     
     if verbose:
-        print(f"Starting rolling-window forecasting...")
+        print(f"\n{'='*60}")
+        print(f"FORECASTING CONFIGURATION")
+        print(f"{'='*60}")
         print(f"  Method: {method}")
-        print(f"  Total periods: {T}")
+        print(f"  Factors: {n_factors}, Variables: {N}, Observations: {T}")
         print(f"  Initial window: {initial_window}")
-        print(f"  In-sample forecast periods: {T - initial_window}")
-        print(f"  Out-of-sample forecast horizon: {forecast_horizon}")
-        print(f"  Number of factors: {n_factors}")
-        print(f"  MCMC samples: {n_samples}")
-        print(f"  MCMC tune: {n_tune}")
-        print("=" * 60)
+        print(f"  Rolling forecast periods: {T - start_idx}")
+        print(f"  Future forecast horizon: {forecast_horizon}")
+        print(f"{'='*60}\n")
     
-    # In-sample rolling forecasts
-    for t in range(initial_window, T):
+    forecast_dates = []
+    forecast_values = []
+    forecast_stds_list = []
+    
+    # ===================
+    # ROLLING FORECASTS
+    # ===================
+    if verbose:
+        print("PHASE 1: Rolling Window Forecasts")
+        print("-" * 40)
+    
+    for t in range(start_idx, T):
         forecast_date = df_standardized.index[t]
         
         if verbose:
-            print(f"\nForecasting {forecast_date.strftime('%Y-%m')} "
-                  f"(Period {t - initial_window + 1}/{T - initial_window})")
+            progress = t - start_idx + 1
+            total = T - start_idx
+            print(f"  [{progress}/{total}] {forecast_date.strftime('%Y-%m')}...", end=" ", flush=True)
         
-        # Training data: all data up to time t-1
         Y_train = df_standardized.iloc[:t].values
         
         try:
-            if method == 'full':
-                model = FullBayesianDFM(n_factors=n_factors)
-                model.fit(Y_train, n_samples=n_samples, n_tune=n_tune, 
-                         target_accept=target_accept, cores=cores)
-                forecast_mean, forecast_std = model.forecast(h=1, n_samples=500)
-                
-            elif method == 'simplified':
-                model = SimplifiedBayesianFactorModel(n_factors=n_factors)
-                model.fit(Y_train, n_samples=n_samples, n_tune=n_tune, cores=cores)
-                forecast_mean, forecast_std = model.forecast(h=1, n_samples=500)
-                
-            elif method == 'dynamic':
-                model = BayesianDynamicFactorModel(n_factors=n_factors)
-                model.fit(Y_train, n_samples=n_samples, n_tune=n_tune, 
-                         target_accept=target_accept, cores=cores)
-                forecast_mean, forecast_std = model.forecast(h=1, n_samples=500)
-                
-            else:  # efficient
+            if method == 'efficient':
                 model = EfficientFactorModel(n_factors=n_factors)
                 model.fit(Y_train)
-                forecast_mean, forecast_std = model.forecast(h=1, n_samples=500)
+            elif method == 'bayesian':
+                model = BayesianFactorModel(n_factors=n_factors)
+                model.fit(Y_train, n_samples=n_samples, n_tune=n_tune, cores=cores)
+            elif method == 'bayesian-ar':
+                model = BayesianARFactorModel(n_factors=n_factors)
+                model.fit(Y_train, n_samples=n_samples, n_tune=n_tune, cores=cores)
+            else:
+                raise ValueError(f"Unknown method: {method}")
             
+            fc_mean, fc_std = model.forecast(h=1, n_samples=300)
             forecast_dates.append(forecast_date)
-            forecast_values_standardized.append(forecast_mean[0])
-            forecast_stds.append(forecast_std[0])
+            forecast_values.append(fc_mean[0])
+            forecast_stds_list.append(fc_std[0])
             
             if verbose:
-                print(f"  Forecast completed successfully")
-            
+                print("Done")
+                
         except Exception as e:
             if verbose:
-                print(f"  Error: {e}")
-                print(f"  Using fallback (last observation * 0.9)")
-            # Fallback
-            forecast_values_standardized.append(df_standardized.iloc[t-1].values * 0.9)
-            forecast_stds.append(np.ones(len(columns)))
+                print(f"Error: {e}")
+            fallback = df_standardized.iloc[t-1].values * 0.95
             forecast_dates.append(forecast_date)
+            forecast_values.append(fallback)
+            forecast_stds_list.append(np.ones(N))
     
-    # Out-of-sample forecasts (beyond the data)
+    # ===================
+    # FUTURE FORECASTS
+    # ===================
     if forecast_horizon > 0:
         if verbose:
-            print(f"\n{'='*60}")
-            print(f"Generating {forecast_horizon} out-of-sample forecasts...")
+            print(f"\nPHASE 2: Future Forecasts ({forecast_horizon} months)")
+            print("-" * 40)
+            print(f"  Training on full dataset (T={T})...")
         
-        # Train on all available data
-        Y_train = df_standardized.values
+        Y_all = df_standardized.values
         
         try:
-            if method == 'full':
-                model = FullBayesianDFM(n_factors=n_factors)
-                model.fit(Y_train, n_samples=n_samples, n_tune=n_tune, 
-                         target_accept=target_accept, cores=cores)
-                forecast_mean, forecast_std = model.forecast(h=forecast_horizon, n_samples=500)
-                
-            elif method == 'simplified':
-                model = SimplifiedBayesianFactorModel(n_factors=n_factors)
-                model.fit(Y_train, n_samples=n_samples, n_tune=n_tune, cores=cores)
-                forecast_mean, forecast_std = model.forecast(h=forecast_horizon, n_samples=500)
-                
-            elif method == 'dynamic':
-                model = BayesianDynamicFactorModel(n_factors=n_factors)
-                model.fit(Y_train, n_samples=n_samples, n_tune=n_tune, 
-                         target_accept=target_accept, cores=cores)
-                forecast_mean, forecast_std = model.forecast(h=forecast_horizon, n_samples=500)
-                
-            else:  # efficient
+            if method == 'efficient':
                 model = EfficientFactorModel(n_factors=n_factors)
-                model.fit(Y_train)
-                forecast_mean, forecast_std = model.forecast(h=forecast_horizon, n_samples=500)
+                model.fit(Y_all)
+            elif method == 'bayesian':
+                model = BayesianFactorModel(n_factors=n_factors)
+                model.fit(Y_all, n_samples=n_samples, n_tune=n_tune, cores=cores)
+            elif method == 'bayesian-ar':
+                model = BayesianARFactorModel(n_factors=n_factors)
+                model.fit(Y_all, n_samples=n_samples, n_tune=n_tune, cores=cores)
             
-            # Generate future dates
+            if verbose:
+                print(f"  Generating {forecast_horizon}-step forecasts...")
+            
+            fc_mean, fc_std = model.forecast(h=forecast_horizon, n_samples=500)
+            
             last_date = df_standardized.index[-1]
             for h in range(forecast_horizon):
                 future_date = last_date + relativedelta(months=h+1)
                 forecast_dates.append(future_date)
-                forecast_values_standardized.append(forecast_mean[h])
-                forecast_stds.append(forecast_std[h])
-                
+                forecast_values.append(fc_mean[h])
+                forecast_stds_list.append(fc_std[h])
                 if verbose:
-                    print(f"  Forecast for {future_date.strftime('%Y-%m')} completed")
+                    print(f"    {future_date.strftime('%Y-%m')}: Done")
                     
         except Exception as e:
             if verbose:
-                print(f"  Error in out-of-sample forecasting: {e}")
-            # Fallback for out-of-sample
+                print(f"  Error: {e}")
             last_date = df_standardized.index[-1]
             last_val = df_standardized.iloc[-1].values
             for h in range(forecast_horizon):
                 future_date = last_date + relativedelta(months=h+1)
                 forecast_dates.append(future_date)
-                forecast_values_standardized.append(last_val * (0.9 ** (h+1)))
-                forecast_stds.append(np.ones(len(columns)) * (1 + 0.1 * h))
+                forecast_values.append(last_val * (0.9 ** (h+1)))
+                forecast_stds_list.append(np.ones(N) * (1 + 0.1*h))
     
-    # Create forecast DataFrames
-    forecasts_standardized = pd.DataFrame(
-        forecast_values_standardized,
-        index=forecast_dates,
-        columns=columns
-    )
+    # ===================
+    # CREATE OUTPUT
+    # ===================
+    if verbose:
+        print(f"\nPHASE 3: Processing Results")
+        print("-" * 40)
     
-    forecast_stds_df = pd.DataFrame(
-        forecast_stds,
-        index=forecast_dates,
-        columns=columns
-    )
-    
-    # Destandardize to transformed scale
+    forecasts_standardized = pd.DataFrame(forecast_values, index=forecast_dates, columns=columns)
+    forecast_stds_df = pd.DataFrame(forecast_stds_list, index=forecast_dates, columns=columns)
     forecasts_transformed = forecasts_standardized * stds + means
     
-    # Reverse transformations to original scale
-    df_orig_aligned = df_original[columns]
+    if verbose:
+        print("  Reversing transformations...")
+    
+    df_orig_aligned = df_original[columns].copy()
     forecasts_original = reverse_transformations(
-        forecasts_transformed,
-        df_orig_aligned,
-        transform_codes,
-        pd.DatetimeIndex(forecast_dates)
+        forecasts_transformed, df_orig_aligned, transform_codes, pd.DatetimeIndex(forecast_dates)
     )
     
     if verbose:
-        print("\n" + "=" * 60)
-        print("Forecasting complete!")
+        print(f"  Total forecasts: {len(forecasts_original)}")
+        print(f"  Date range: {forecast_dates[0]} to {forecast_dates[-1]}")
     
     return forecasts_original, forecasts_transformed, forecasts_standardized, forecast_stds_df
 
 
 # =============================================================================
-# 7. MAIN FUNCTION
+# 4. MAIN
 # =============================================================================
 
 def main(args):
-    """
-    Main function to run the rolling-window forecasting.
-    """
-    
+    """Main entry point."""
     print("=" * 70)
-    print("BAYESIAN DYNAMIC FACTOR MODEL - ROLLING WINDOW FORECASTING")
+    print("BAYESIAN DYNAMIC FACTOR MODEL FORECASTING")
     print("=" * 70)
     
-    # Step 1: Load and preprocess data
-    print(f"\n[1/5] Loading data from: {args.input}")
+    # Load
+    print(f"\n[1/4] Loading: {args.input}")
     df_raw, transform_codes = load_and_preprocess_data(args.input)
-    print(f"  Raw data shape: {df_raw.shape}")
-    print(f"  Date range: {df_raw.index[0]} to {df_raw.index[-1]}")
-    
-    # Store original data for reverse transformation
+    print(f"  Shape: {df_raw.shape}, Range: {df_raw.index[0]} to {df_raw.index[-1]}")
     df_original = df_raw.copy()
     
-    # Step 2: Apply transformations
-    print("\n[2/5] Applying FRED-MD transformations...")
-    print("  Transformation codes:")
-    print("    1 = no transformation")
-    print("    2 = Δx_t (first difference)")
-    print("    3 = Δ²x_t (second difference)")
-    print("    4 = log(x_t)")
-    print("    5 = Δlog(x_t) (log first difference)")
-    print("    6 = Δ²log(x_t) (log second difference)")
-    print("    7 = Δ(x_t/x_{t-1} - 1.0)")
+    # Transform
+    print("\n[2/4] Applying transformations...")
     df_transformed = apply_transformations(df_raw, transform_codes)
     
-    # Step 3: Prepare for modeling
-    print(f"\n[3/5] Preparing data for factor modeling...")
-    print(f"  Minimum observation ratio: {args.min_obs_ratio}")
+    # Prepare
+    print("\n[3/4] Preparing data...")
     df_standardized, means, stds, valid_cols = prepare_data_for_modeling(
         df_transformed, min_obs_ratio=args.min_obs_ratio
     )
-    print(f"  Clean data shape: {df_standardized.shape}")
-    print(f"  Variables retained: {len(valid_cols)}")
+    print(f"  Clean shape: {df_standardized.shape}, Variables: {len(valid_cols)}")
     
-    # Step 4: Run rolling-window forecasting
-    print(f"\n[4/5] Running rolling-window forecasting...")
-    
-    forecasts_original, forecasts_transformed, forecasts_standardized, forecast_stds = rolling_window_forecast(
-        df_standardized, 
-        means, 
-        stds,
-        df_original,
-        transform_codes,
+    # Forecast
+    print("\n[4/4] Running forecasts...")
+    forecasts_original, forecasts_transformed, forecasts_standardized, forecast_stds = run_forecasting(
+        df_standardized, means, stds, df_original, transform_codes,
         n_factors=args.n_factors,
         initial_window=args.initial_window,
         forecast_horizon=args.forecast_horizon,
+        start_date=args.start_date,
         method=args.method,
         n_samples=args.n_samples,
         n_tune=args.n_tune,
-        target_accept=args.target_accept,
         cores=args.cores,
         verbose=not args.quiet
     )
     
-    # Step 5: Prepare output
-    print(f"\n[5/5] Saving output to: {args.output}")
-    
-    # Create output DataFrame matching input format
+    # Save
+    print(f"\nSaving to: {args.output}")
     output_df = pd.DataFrame(index=forecasts_original.index, columns=df_raw.columns)
-    
-    # Fill in forecasted columns
     for col in forecasts_original.columns:
         if col in output_df.columns:
             output_df[col] = forecasts_original[col]
     
-    # Format dates like input (M/D/YYYY)
-    # Handle cross-platform compatibility for date formatting
     try:
         output_df.index = output_df.index.strftime('%-m/%-d/%Y')
     except ValueError:
-        # Windows uses %#m/%#d/%Y instead of %-m/%-d/%Y
         output_df.index = output_df.index.strftime('%#m/%#d/%Y')
     output_df.index.name = 'sasdate'
     
-    # Add transformation codes as first row
     transform_row = transform_codes[output_df.columns].to_frame().T
     transform_row.index = ['Transform:']
-    
-    # Combine and save
     final_output = pd.concat([transform_row, output_df])
     final_output.to_csv(args.output)
     
-    print(f"\n  Forecast period: {forecasts_original.index[0]} to {forecasts_original.index[-1]}")
-    print(f"  Total forecasts: {len(forecasts_original)}")
-    print(f"  Output saved to: {args.output}")
-    
-    # Save forecast standard deviations if requested
     if args.save_std:
-        std_output_path = args.output.replace('.csv', '_std.csv')
+        std_path = args.output.replace('.csv', '_std.csv')
         try:
             forecast_stds.index = forecast_stds.index.strftime('%-m/%-d/%Y')
         except ValueError:
             forecast_stds.index = forecast_stds.index.strftime('%#m/%#d/%Y')
         forecast_stds.index.name = 'sasdate'
-        forecast_stds.to_csv(std_output_path)
-        print(f"  Forecast std saved to: {std_output_path}")
+        forecast_stds.to_csv(std_path)
+        print(f"  Std saved to: {std_path}")
     
-    # Save transformed forecasts if requested
     if args.save_transformed:
-        trans_output_path = args.output.replace('.csv', '_transformed.csv')
+        trans_path = args.output.replace('.csv', '_transformed.csv')
         try:
             forecasts_transformed.index = forecasts_transformed.index.strftime('%-m/%-d/%Y')
         except ValueError:
             forecasts_transformed.index = forecasts_transformed.index.strftime('%#m/%#d/%Y')
         forecasts_transformed.index.name = 'sasdate'
-        forecasts_transformed.to_csv(trans_output_path)
-        print(f"  Transformed forecasts saved to: {trans_output_path}")
+        forecasts_transformed.to_csv(trans_path)
+        print(f"  Transformed saved to: {trans_path}")
     
     print("\n" + "=" * 70)
-    print("FORECASTING COMPLETE")
+    print("COMPLETE")
     print("=" * 70)
     
     return final_output, forecasts_original, forecasts_transformed
 
 
 # =============================================================================
-# 8. ARGUMENT PARSER
+# 5. ARGUMENT PARSER
 # =============================================================================
 
 def parse_args():
-    """
-    Parse command-line arguments.
-    """
     parser = argparse.ArgumentParser(
-        description='Rolling-Window Bayesian Dynamic Factor Model Forecasting for FRED-MD data',
+        description='Bayesian Dynamic Factor Model Forecasting for FRED-MD',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Basic usage with defaults (simplified Bayesian method)
-  python forecast.py --input 2025-12-MD.csv --output forecasts.csv
+  # Fast rolling forecasts (SVD + OLS)
+  python forecast.py -i 2025-12-MD.csv -o forecasts.csv
 
-  # Use full Bayesian DFM (slower but most accurate)
-  python forecast.py --input 2025-12-MD.csv --output forecasts.csv --method full
+  # Rolling + 12 months future
+  python forecast.py -i 2025-12-MD.csv -o forecasts.csv -f 12
 
-  # Forecast 12 months into the future (beyond the data)
-  python forecast.py --input 2025-12-MD.csv --output forecasts.csv --forecast-horizon 12
+  # Start from 2020
+  python forecast.py -i 2025-12-MD.csv -o forecasts.csv --start-date 2020-01-01
 
-  # Custom number of factors and initial window
-  python forecast.py --input 2025-12-MD.csv --output forecasts.csv --n-factors 8 --initial-window 60
+  # Bayesian method
+  python forecast.py -i 2025-12-MD.csv -o forecasts.csv --method bayesian
 
-  # Use efficient SVD-based method (fastest)
-  python forecast.py --input 2025-12-MD.csv --output forecasts.csv --method efficient
-
-  # Increase MCMC samples for better inference
-  python forecast.py --input 2025-12-MD.csv --output forecasts.csv --n-samples 5000 --n-tune 2000
-
-  # Save forecast standard deviations and transformed forecasts
-  python forecast.py --input 2025-12-MD.csv --output forecasts.csv --save-std --save-transformed
-
-  # Use multiple cores for faster sampling
-  python forecast.py --input 2025-12-MD.csv --output forecasts.csv --cores 4
-
-  # Quiet mode (minimal output)
-  python forecast.py --input 2025-12-MD.csv --output forecasts.csv --quiet
+  # Bayesian with Bayesian AR on factors
+  python forecast.py -i 2025-12-MD.csv -o forecasts.csv --method bayesian-ar
 
 Methods:
-  full       - Full Bayesian Dynamic Factor Model with state-space formulation
-               Slowest but most accurate. Uses MCMC for all parameters jointly.
-  
-  simplified - Two-step Bayesian approach (default)
-               First extracts factors via Bayesian PCA, then fits AR(1) to factors.
-               Good balance of speed and accuracy.
-  
-  dynamic    - Bayesian DFM with explicit factor dynamics
-               Models factor evolution directly in the joint posterior.
-  
-  efficient  - SVD-based factor extraction with OLS AR(1)
-               Fastest method, no MCMC. Good for quick results or large datasets.
+  efficient   - SVD + OLS AR(1). Fast, no MCMC.
+  bayesian    - Bayesian PCA + frequentist AR(1). Medium.
+  bayesian-ar - Bayesian PCA + Bayesian AR(1). Slowest, full uncertainty.
         """
     )
     
-    # Required arguments
-    parser.add_argument(
-        '--input', '-i',
-        type=str,
-        required=True,
-        help='Path to input FRED-MD CSV file (e.g., 2025-12-MD.csv)'
-    )
-    
-    parser.add_argument(
-        '--output', '-o',
-        type=str,
-        required=True,
-        help='Path to output CSV file for forecasts'
-    )
-    
-    # Model parameters
-    parser.add_argument(
-        '--n-factors', '-k',
-        type=int,
-        default=5,
-        help='Number of latent factors to extract (default: 5)'
-    )
-    
-    parser.add_argument(
-        '--initial-window', '-w',
-        type=int,
-        default=120,
-        help='Initial training window in months (default: 120 = 10 years)'
-    )
-    
-    parser.add_argument(
-        '--forecast-horizon', '-f',
-        type=int,
-        default=0,
-        help='Number of months to forecast beyond the data (default: 0 = in-sample only)'
-    )
-    
-    parser.add_argument(
-        '--method', '-m',
-        type=str,
-        default='simplified',
-        choices=['full', 'simplified', 'dynamic', 'efficient'],
-        help='Estimation method: full, simplified, dynamic, or efficient (default: simplified)'
-    )
-    
-    # MCMC parameters
-    parser.add_argument(
-        '--n-samples', '-s',
-        type=int,
-        default=1000,
-        help='Number of MCMC samples (default: 1000)'
-    )
-    
-    parser.add_argument(
-        '--n-tune', '-t',
-        type=int,
-        default=500,
-        help='Number of MCMC tuning/burn-in samples (default: 500)'
-    )
-    
-    parser.add_argument(
-        '--target-accept',
-        type=float,
-        default=0.9,
-        help='Target acceptance rate for NUTS sampler (default: 0.9)'
-    )
-    
-    parser.add_argument(
-        '--cores', '-c',
-        type=int,
-        default=1,
-        help='Number of CPU cores for parallel sampling (default: 1)'
-    )
-    
-    # Data preprocessing
-    parser.add_argument(
-        '--min-obs-ratio',
-        type=float,
-        default=0.8,
-        help='Minimum observation ratio to keep a variable (default: 0.8)'
-    )
-    
-    # Output options
-    parser.add_argument(
-        '--save-std',
-        action='store_true',
-        help='Save forecast standard deviations to separate file'
-    )
-    
-    parser.add_argument(
-        '--save-transformed',
-        action='store_true',
-        help='Save forecasts in transformed scale to separate file'
-    )
-    
-    parser.add_argument(
-        '--quiet', '-q',
-        action='store_true',
-        help='Suppress progress output'
-    )
+    parser.add_argument('--input', '-i', type=str, required=True, help='Input CSV')
+    parser.add_argument('--output', '-o', type=str, required=True, help='Output CSV')
+    parser.add_argument('--n-factors', '-k', type=int, default=5, help='Factors (default: 5)')
+    parser.add_argument('--initial-window', '-w', type=int, default=120, help='Window (default: 120)')
+    parser.add_argument('--forecast-horizon', '-f', type=int, default=0, help='Future months (default: 0)')
+    parser.add_argument('--start-date', type=str, default=None, help='Start date (YYYY-MM-DD)')
+    parser.add_argument('--method', '-m', type=str, default='efficient',
+                        choices=['efficient', 'bayesian', 'bayesian-ar'], help='Method')
+    parser.add_argument('--n-samples', '-s', type=int, default=1000, help='MCMC samples')
+    parser.add_argument('--n-tune', '-t', type=int, default=500, help='MCMC tune')
+    parser.add_argument('--cores', '-c', type=int, default=1, help='CPU cores')
+    parser.add_argument('--min-obs-ratio', type=float, default=0.8, help='Min obs ratio')
+    parser.add_argument('--save-std', action='store_true', help='Save std devs')
+    parser.add_argument('--save-transformed', action='store_true', help='Save transformed')
+    parser.add_argument('--quiet', '-q', action='store_true', help='Quiet mode')
     
     return parser.parse_args()
 
 
-# =============================================================================
-# RUN
-# =============================================================================
-
 if __name__ == "__main__":
     args = parse_args()
-    final_output, forecasts_original, forecasts_transformed = main(args)
+    main(args)
