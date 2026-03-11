@@ -322,7 +322,7 @@ class BayesianFactorModel:
             pm.Normal('Y_obs', mu=mu, sigma=Psi, observed=Y)
             self.trace = pm.sample(
                 draws=n_samples, tune=n_tune, cores=cores,
-                return_inferencedata=True, progressbar=True, target_accept=0.9
+                return_inferencedata=True, progressbar=True, target_accept=0.95
             )
         self.loadings = self.trace.posterior['Lambda'].mean(dim=['chain','draw']).values
         self.factors  = self.trace.posterior['F'].mean(dim=['chain','draw']).values
@@ -389,7 +389,7 @@ class BayesianARFactorModel:
             pm.Normal('Y_obs', mu=mu, sigma=Psi, observed=Y)
             self.trace = pm.sample(
                 draws=n_samples, tune=n_tune, cores=cores,
-                return_inferencedata=True, progressbar=True, target_accept=0.9
+                return_inferencedata=True, progressbar=True, target_accept=0.95
             )
         self.loadings = self.trace.posterior['Lambda'].mean(dim=['chain','draw']).values
         self.factors  = self.trace.posterior['F'].mean(dim=['chain','draw']).values
@@ -505,7 +505,9 @@ def run_rolling_horizon(
 
             raw_samples    = model.forecast_samples(h=1, n_samples=simulations)
             draws_std      = raw_samples[:, 0, :]
-            draws_trans    = draws_std * stds[valid_cols].values + means[valid_cols].values
+            std_vals       = np.array(stds[valid_cols]).flatten()
+            mean_vals      = np.array(means[valid_cols]).flatten()
+            draws_trans    = draws_std * std_vals + mean_vals
             draws_original = np.full((simulations, len(df_raw.columns)), np.nan)
             all_cols       = list(df_raw.columns)
 
@@ -635,8 +637,13 @@ def fill_missing_data_rolling(df_original, transform_codes, n_factors=5, method=
                 model = BayesianARFactorModel(n_factors=n_factors)
                 model.fit(df_std.values, n_samples=n_samples, n_tune=n_tune, cores=cores)
             fc_mean, _ = model.forecast(h=1, n_samples=300)
+            std_vals   = np.array(stds[valid_cols]).flatten()
+            mean_vals  = np.array(means[valid_cols]).flatten()
             fc_trans   = pd.DataFrame([fc_mean], index=[forecast_date], columns=valid_cols)
-            fc_orig    = fc_trans * stds[valid_cols].values + means[valid_cols].values
+            fc_orig    = pd.DataFrame(
+                fc_trans.values * std_vals + mean_vals,
+                index=fc_trans.index, columns=valid_cols
+            )
             for col in cols_to_forecast:
                 if col not in valid_cols:
                     continue
