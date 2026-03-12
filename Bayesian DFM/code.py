@@ -102,12 +102,18 @@ def save_trace_to_db(conn, run_id, horizon_step, model_step, trace):
     import arviz as az
     with tempfile.NamedTemporaryFile(suffix=".nc", delete=False) as f:
         tmp = f.name
+    blob = None
     try:
         az.to_netcdf(trace, tmp)
         with open(tmp, "rb") as f:
             blob = f.read()
+    except Exception:
+        pass
     finally:
-        os.unlink(tmp)
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+    if blob is None:
+        return
     conn.execute(
         "INSERT INTO traces (run_id, horizon_step, model_step, trace_blob) VALUES (?,?,?,?)",
         (run_id, horizon_step, model_step, blob)
@@ -128,8 +134,11 @@ def load_trace_from_db(conn, run_id, horizon_step, model_step):
         tmp = f.name
     try:
         return az.from_netcdf(tmp)
+    except Exception:
+        return None
     finally:
-        os.unlink(tmp)
+        if os.path.exists(tmp):
+            os.unlink(tmp)
 
 
 def save_forecasts_to_db(conn, run_id, forecast_dates, mean_df, p5_df, p95_df):
@@ -302,7 +311,7 @@ class EfficientFactorModel:
 
     def forecast(self, h=1, n_samples=1000):
         s = self.forecast_samples(h, n_samples)
-        return s.mean(axis=0), s.std(axis=0)
+        return s.mean(axis=0).reshape(h, -1), s.std(axis=0).reshape(h, -1)
 
 
 class BayesianFactorModel:
@@ -368,7 +377,7 @@ class BayesianFactorModel:
 
     def forecast(self, h=1, n_samples=1000):
         s = self.forecast_samples(h, n_samples)
-        return s.mean(axis=0), s.std(axis=0)
+        return s.mean(axis=0).reshape(h, -1), s.std(axis=0).reshape(h, -1)
 
 
 class BayesianARFactorModel:
@@ -442,7 +451,7 @@ class BayesianARFactorModel:
 
     def forecast(self, h=1, n_samples=1000):
         s = self.forecast_samples(h, n_samples)
-        return s.mean(axis=0), s.std(axis=0)
+        return s.mean(axis=0).reshape(h, -1), s.std(axis=0).reshape(h, -1)
 
 
 def run_rolling_horizon(
@@ -538,6 +547,7 @@ def run_rolling_horizon(
         except Exception as e:
             if verbose:
                 print(f"    Error: {e}  — using fallback")
+            draws_original = np.full((simulations, len(df_raw.columns)), np.nan)
             mean_row = p5_row = p95_row = np.full(len(df_raw.columns), np.nan)
 
         all_dates.append(forecast_date)
@@ -548,6 +558,7 @@ def run_rolling_horizon(
 
         new_row    = pd.Series(mean_row, index=df_raw.columns, name=forecast_date)
         df_working = pd.concat([df_working, new_row.to_frame().T])
+        df_working  = df_working.apply(pd.to_numeric, errors='coerce')
 
     cols    = list(df_raw.columns)
     mean_df = pd.DataFrame(mean_rows, index=all_dates, columns=cols)
@@ -588,7 +599,8 @@ def identify_missing_data(df):
         series    = df[col]
         valid_idx = series.last_valid_index()
         if valid_idx is not None:
-            last_valid_pos = df.index.get_loc(valid_idx)
+            loc = df.index.get_loc(valid_idx)
+            last_valid_pos = loc.stop - 1 if isinstance(loc, slice) else int(loc)
             if last_valid_pos < len(df) - 1:
                 missing_info[col] = {
                     'last_valid_idx':    valid_idx,
@@ -639,7 +651,7 @@ def fill_missing_data_rolling(df_original, transform_codes, n_factors=5, method=
             fc_mean, _ = model.forecast(h=1, n_samples=300)
             std_vals   = np.array(stds[valid_cols]).flatten()
             mean_vals  = np.array(means[valid_cols]).flatten()
-            fc_trans   = pd.DataFrame([fc_mean], index=[forecast_date], columns=valid_cols)
+            fc_trans   = pd.DataFrame([np.array(fc_mean).reshape(-1)], index=[forecast_date], columns=valid_cols)
             fc_orig    = pd.DataFrame(
                 fc_trans.values * std_vals + mean_vals,
                 index=fc_trans.index, columns=valid_cols
@@ -659,6 +671,7 @@ def fill_missing_data_rolling(df_original, transform_codes, n_factors=5, method=
         except Exception as e:
             if verbose:
                 print(f"    Error at step {step}: {e}")
+        df_filled = df_filled.apply(pd.to_numeric, errors='coerce')
     return df_filled
 
 
