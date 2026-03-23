@@ -4,6 +4,17 @@
 #   forecasts_p95.csv      95th percentile of predictive density
 #   results.db             SQLite database with posterior draws + run metadata (if --db is set)
 #
+# OPTIMIZATIONS vs original:
+#   1. Fit-once: model is fitted once on historical data; all horizon steps are
+#      drawn in a single forecast_samples(h=horizon) call — no per-step re-fitting.
+#   2. Vectorised reverse transforms: NumPy array ops replace Python sim loop.
+#   3. O(1) column lookup via dict instead of list.index().
+#   4. Cross-platform date formatting: output dates (M/D/YYYY) identical on
+#      macOS, Linux, and Windows. Input parsing handles non-zero-padded dates.
+#   5. Interior missing data (e.g. quarterly series like UMCSENTx) are filled
+#      with time-aware linear interpolation (limit=3 months) instead of ffill,
+#      giving smoother transitions between known values.
+#
 # Basic rolling forecast (24 months, Bayesian):
 #   python3 code.py --input 2026-01-MD.csv --output forecasts.csv --method bayesian --horizon 24
 #
@@ -161,7 +172,7 @@ def load_and_preprocess_data(filepath):
     df = pd.read_csv(filepath)
     transform_codes = df.iloc[0].copy()
     df = df.iloc[1:].copy()
-    df['sasdate'] = pd.to_datetime(df['sasdate'], format='%m/%d/%Y')
+    df['sasdate'] = pd.to_datetime(df['sasdate'], format='mixed', dayfirst=False)
     df.set_index('sasdate', inplace=True)
     df = df.apply(pd.to_numeric, errors='coerce')
     return df, transform_codes
@@ -258,6 +269,10 @@ def prepare_data_for_modeling(df, min_obs_ratio=0.8):
     missing_ratio = df.isnull().sum() / len(df)
     valid_cols = missing_ratio[missing_ratio < (1 - min_obs_ratio)].index.tolist()
     df_clean = df[valid_cols].copy()
+    # Interpolate interior gaps (e.g. quarterly series like UMCSENTx) using
+    # time-aware linear interpolation, then ffill/bfill only for leading/trailing edges.
+    # limit=3 avoids filling very long structural gaps (>3 months) with interpolation.
+    df_clean = df_clean.interpolate(method='time', limit=3, limit_direction='forward')
     df_clean = df_clean.ffill().bfill()
     df_clean = df_clean.dropna(axis=1, how='any')
     means = df_clean.mean()
@@ -454,6 +469,35 @@ class BayesianARFactorModel:
         return s.mean(axis=0).reshape(h, -1), s.std(axis=0).reshape(h, -1)
 
 
+def _reverse_transform_vectorized(vals, x_t1, x_t2, code):
+    """Vectorised version of reverse_transformation_single over a NumPy array."""
+    vals = np.asarray(vals, dtype=float)
+    if np.isnan(x_t1):
+        return np.full_like(vals, np.nan)
+    if code == 1:
+        return vals
+    elif code == 2:
+        return x_t1 + vals
+    elif code == 3:
+        return 2 * x_t1 - x_t2 + vals
+    elif code == 4:
+        return np.exp(vals)
+    elif code == 5:
+        return x_t1 * np.exp(vals) if x_t1 > 0 else np.full_like(vals, x_t1)
+    elif code == 6:
+        if x_t1 > 0 and x_t2 > 0:
+            dlog_t1 = np.log(x_t1) - np.log(x_t2)
+            return x_t1 * np.exp(dlog_t1 + vals)
+        return np.full_like(vals, x_t1)
+    elif code == 7:
+        if x_t1 != 0 and x_t2 != 0:
+            pct_t1 = x_t1 / x_t2 - 1.0
+            return x_t1 * (1 + pct_t1 + vals)
+        return np.full_like(vals, x_t1)
+    else:
+        return vals
+
+
 def run_rolling_horizon(
     df_raw, transform_codes,
     horizon=24,
@@ -481,47 +525,62 @@ def run_rolling_horizon(
     p5_rows      = []
     p95_rows     = []
     step_samples = {}
+    all_cols     = list(df_raw.columns)
+    col_idx_map  = {col: i for i, col in enumerate(all_cols)}
+
+    # ------------------------------------------------------------------ #
+    # FIT ONCE on full historical data, then draw all horizon steps in    #
+    # a single forecast_samples(h=horizon) call.  This replaces the       #
+    # original per-step re-fit loop which ran MCMC `horizon` times.       #
+    # ------------------------------------------------------------------ #
+    if verbose:
+        print(f"\n  [1/2] Fitting model on historical data (single fit)...")
+
+    df_transformed = apply_transformations(df_working, transform_codes)
+    df_std, means, stds, valid_cols = prepare_data_for_modeling(
+        df_transformed, min_obs_ratio=min_obs_ratio
+    )
+    Y_train = df_std.values
+
+    if method == 'efficient':
+        model = EfficientFactorModel(n_factors=n_factors)
+        model.fit(Y_train)
+    elif method == 'bayesian':
+        model = BayesianFactorModel(n_factors=n_factors)
+        model.fit(Y_train, n_samples=n_samples, n_tune=n_tune, cores=cores)
+    elif method == 'bayesian-ar':
+        model = BayesianARFactorModel(n_factors=n_factors)
+        model.fit(Y_train, n_samples=n_samples, n_tune=n_tune, cores=cores)
+    else:
+        raise ValueError(f"Unknown method: {method}")
+
+    if db_conn is not None and run_id is not None and hasattr(model, 'trace'):
+        save_trace_to_db(db_conn, run_id, 0, 'factor_model', model.trace)
+        if hasattr(model, 'ar_traces'):
+            for k, ar_tr in enumerate(model.ar_traces):
+                save_trace_to_db(db_conn, run_id, 0, f'ar_factor_{k}', ar_tr)
+
+    # Draw all horizon steps at once: shape (simulations, horizon, n_valid)
+    if verbose:
+        print(f"  [2/2] Drawing {simulations} predictive paths over {horizon} steps...")
+    all_raw_samples = model.forecast_samples(h=horizon, n_samples=simulations)
+
+    std_vals  = np.array(stds[valid_cols]).flatten()
+    mean_vals = np.array(means[valid_cols]).flatten()
 
     for step in range(horizon):
         forecast_date = last_date + relativedelta(months=step + 1)
         if verbose:
             print(f"\n  Step {step+1}/{horizon}  →  {forecast_date.strftime('%Y-%m')}")
 
-        df_transformed = apply_transformations(df_working, transform_codes)
-        df_std, means, stds, valid_cols = prepare_data_for_modeling(
-            df_transformed, min_obs_ratio=min_obs_ratio
-        )
-        Y_train = df_std.values
-
         try:
-            if method == 'efficient':
-                model = EfficientFactorModel(n_factors=n_factors)
-                model.fit(Y_train)
-            elif method == 'bayesian':
-                model = BayesianFactorModel(n_factors=n_factors)
-                model.fit(Y_train, n_samples=n_samples, n_tune=n_tune, cores=cores)
-            elif method == 'bayesian-ar':
-                model = BayesianARFactorModel(n_factors=n_factors)
-                model.fit(Y_train, n_samples=n_samples, n_tune=n_tune, cores=cores)
-            else:
-                raise ValueError(f"Unknown method: {method}")
+            draws_std   = all_raw_samples[:, step, :]           # (simulations, n_valid)
+            draws_trans = draws_std * std_vals + mean_vals       # un-standardise
 
-            if db_conn is not None and run_id is not None and hasattr(model, 'trace'):
-                save_trace_to_db(db_conn, run_id, step, 'factor_model', model.trace)
-                if hasattr(model, 'ar_traces'):
-                    for k, ar_tr in enumerate(model.ar_traces):
-                        save_trace_to_db(db_conn, run_id, step, f'ar_factor_{k}', ar_tr)
-
-            raw_samples    = model.forecast_samples(h=1, n_samples=simulations)
-            draws_std      = raw_samples[:, 0, :]
-            std_vals       = np.array(stds[valid_cols]).flatten()
-            mean_vals      = np.array(means[valid_cols]).flatten()
-            draws_trans    = draws_std * std_vals + mean_vals
-            draws_original = np.full((simulations, len(df_raw.columns)), np.nan)
-            all_cols       = list(df_raw.columns)
+            draws_original = np.full((simulations, len(all_cols)), np.nan)
 
             for vi, col in enumerate(valid_cols):
-                col_idx = all_cols.index(col) if col in all_cols else None
+                col_idx = col_idx_map.get(col)
                 if col_idx is None:
                     continue
                 try:
@@ -531,10 +590,9 @@ def run_rolling_horizon(
                 orig_vals = df_working[col].dropna().values
                 x_t1 = orig_vals[-1] if len(orig_vals) >= 1 else np.nan
                 x_t2 = orig_vals[-2] if len(orig_vals) >= 2 else x_t1
-                for sim_i in range(simulations):
-                    draws_original[sim_i, col_idx] = reverse_transformation_single(
-                        draws_trans[sim_i, vi], x_t1, x_t2, code
-                    )
+                draws_original[:, col_idx] = _reverse_transform_vectorized(
+                    draws_trans[:, vi], x_t1, x_t2, code
+                )
 
             mean_row = np.nanmean(draws_original, axis=0)
             p5_row   = np.nanpercentile(draws_original, 5,  axis=0)
@@ -547,8 +605,8 @@ def run_rolling_horizon(
         except Exception as e:
             if verbose:
                 print(f"    Error: {e}  — using fallback")
-            draws_original = np.full((simulations, len(df_raw.columns)), np.nan)
-            mean_row = p5_row = p95_row = np.full(len(df_raw.columns), np.nan)
+            draws_original = np.full((simulations, len(all_cols)), np.nan)
+            mean_row = p5_row = p95_row = np.full(len(all_cols), np.nan)
 
         all_dates.append(forecast_date)
         mean_rows.append(mean_row)
@@ -558,7 +616,7 @@ def run_rolling_horizon(
 
         new_row    = pd.Series(mean_row, index=df_raw.columns, name=forecast_date)
         df_working = pd.concat([df_working, new_row.to_frame().T])
-        df_working  = df_working.apply(pd.to_numeric, errors='coerce')
+        df_working = df_working.infer_objects(copy=False).apply(pd.to_numeric, errors='coerce')
 
     cols    = list(df_raw.columns)
     mean_df = pd.DataFrame(mean_rows, index=all_dates, columns=cols)
@@ -573,11 +631,13 @@ def run_rolling_horizon(
     return mean_df, p5_df, p95_df, step_samples
 
 
+def _fmt_date(dt):
+    """Format a date as M/D/YYYY with no leading zeros, cross-platform."""
+    return f"{dt.month}/{dt.day}/{dt.year}"
+
+
 def format_date_index(df):
-    try:
-        df.index = df.index.strftime('%-m/%-d/%Y')
-    except ValueError:
-        df.index = df.index.strftime('%#m/%#d/%Y')
+    df.index = [_fmt_date(d) for d in df.index]
     df.index.name = 'sasdate'
     return df
 
@@ -701,7 +761,14 @@ def main(args):
             cores=args.cores, min_obs_ratio=args.min_obs_ratio,
             verbose=not args.quiet
         )
-        final = build_output_csv(df_raw, transform_codes, df_filled)
+        missing_info = identify_missing_data(df_raw)
+        filled_indices = [df_raw.index[info['missing_start_pos'] + s]
+                          for info in missing_info.values()
+                          for s in range(info['n_missing'])
+                          if info['missing_start_pos'] + s < len(df_raw)]
+        filled_indices = sorted(set(filled_indices))
+        df_filled_only = df_filled.loc[filled_indices] if filled_indices else df_filled
+        final = build_output_csv(df_raw, transform_codes, df_filled_only)
         final.to_csv(args.output)
         print(f"\nSaved → {args.output}")
         if db_conn:
