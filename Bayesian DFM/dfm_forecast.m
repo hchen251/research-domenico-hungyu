@@ -35,6 +35,7 @@ function dfm_forecast(varargin)
 %     - Interior gaps (e.g., quarterly series like UMCSENTx)
 %     - Trailing ragged edge (recent months not yet reported)
 %   Output: Complete historical dataset with all fillable gaps populated
+% dfm_forecast('filled_2026-02-MD.csv', 'bay_60m.csv', 'method', 'bayesian', 'horizon', 60, 'n_factors', 7,'n_samples' , 5000, 'n_tune',2000,'simulations',10000)
 
 % -------------------------------------------------------------------------
 % Parse inputs
