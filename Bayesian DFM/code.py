@@ -5,13 +5,11 @@
 #   results.db             SQLite database with posterior draws + run metadata (if --db is set)
 #
 # OPTIMIZATIONS vs original:
-#   1. Fit-once: model is fitted once on historical data; all horizon steps are
-#      drawn in a single forecast_samples(h=horizon) call — no per-step re-fitting.
-#   2. Vectorised reverse transforms: NumPy array ops replace Python sim loop.
-#   3. O(1) column lookup via dict instead of list.index().
-#   4. Cross-platform date formatting: output dates (M/D/YYYY) identical on
+#   1. Vectorised reverse transforms: NumPy array ops replace Python sim loop.
+#   2. O(1) column lookup via dict instead of list.index().
+#   3. Cross-platform date formatting: output dates (M/D/YYYY) identical on
 #      macOS, Linux, and Windows. Input parsing handles non-zero-padded dates.
-#   5. Interior missing data (e.g. quarterly series like UMCSENTx) are filled
+#   4. Interior missing data (e.g. quarterly series like UMCSENTx) are filled
 #      with time-aware linear interpolation (limit=3 months) instead of ffill,
 #      giving smoother transitions between known values.
 #
@@ -528,54 +526,42 @@ def run_rolling_horizon(
     all_cols     = list(df_raw.columns)
     col_idx_map  = {col: i for i, col in enumerate(all_cols)}
 
-    # ------------------------------------------------------------------ #
-    # FIT ONCE on full historical data, then draw all horizon steps in    #
-    # a single forecast_samples(h=horizon) call.  This replaces the       #
-    # original per-step re-fit loop which ran MCMC `horizon` times.       #
-    # ------------------------------------------------------------------ #
-    if verbose:
-        print(f"\n  [1/2] Fitting model on historical data (single fit)...")
-
-    df_transformed = apply_transformations(df_working, transform_codes)
-    df_std, means, stds, valid_cols = prepare_data_for_modeling(
-        df_transformed, min_obs_ratio=min_obs_ratio
-    )
-    Y_train = df_std.values
-
-    if method == 'efficient':
-        model = EfficientFactorModel(n_factors=n_factors)
-        model.fit(Y_train)
-    elif method == 'bayesian':
-        model = BayesianFactorModel(n_factors=n_factors)
-        model.fit(Y_train, n_samples=n_samples, n_tune=n_tune, cores=cores)
-    elif method == 'bayesian-ar':
-        model = BayesianARFactorModel(n_factors=n_factors)
-        model.fit(Y_train, n_samples=n_samples, n_tune=n_tune, cores=cores)
-    else:
-        raise ValueError(f"Unknown method: {method}")
-
-    if db_conn is not None and run_id is not None and hasattr(model, 'trace'):
-        save_trace_to_db(db_conn, run_id, 0, 'factor_model', model.trace)
-        if hasattr(model, 'ar_traces'):
-            for k, ar_tr in enumerate(model.ar_traces):
-                save_trace_to_db(db_conn, run_id, 0, f'ar_factor_{k}', ar_tr)
-
-    # Draw all horizon steps at once: shape (simulations, horizon, n_valid)
-    if verbose:
-        print(f"  [2/2] Drawing {simulations} predictive paths over {horizon} steps...")
-    all_raw_samples = model.forecast_samples(h=horizon, n_samples=simulations)
-
-    std_vals  = np.array(stds[valid_cols]).flatten()
-    mean_vals = np.array(means[valid_cols]).flatten()
-
     for step in range(horizon):
         forecast_date = last_date + relativedelta(months=step + 1)
         if verbose:
             print(f"\n  Step {step+1}/{horizon}  →  {forecast_date.strftime('%Y-%m')}")
 
+        # Refit on real data + all previously appended forecast months
+        df_transformed = apply_transformations(df_working, transform_codes)
+        df_std, means, stds, valid_cols = prepare_data_for_modeling(
+            df_transformed, min_obs_ratio=min_obs_ratio
+        )
+        Y_train = df_std.values
+
         try:
-            draws_std   = all_raw_samples[:, step, :]           # (simulations, n_valid)
-            draws_trans = draws_std * std_vals + mean_vals       # un-standardise
+            if method == 'efficient':
+                model = EfficientFactorModel(n_factors=n_factors)
+                model.fit(Y_train)
+            elif method == 'bayesian':
+                model = BayesianFactorModel(n_factors=n_factors)
+                model.fit(Y_train, n_samples=n_samples, n_tune=n_tune, cores=cores)
+            elif method == 'bayesian-ar':
+                model = BayesianARFactorModel(n_factors=n_factors)
+                model.fit(Y_train, n_samples=n_samples, n_tune=n_tune, cores=cores)
+            else:
+                raise ValueError(f"Unknown method: {method}")
+
+            if db_conn is not None and run_id is not None and hasattr(model, 'trace'):
+                save_trace_to_db(db_conn, run_id, step, 'factor_model', model.trace)
+                if hasattr(model, 'ar_traces'):
+                    for k, ar_tr in enumerate(model.ar_traces):
+                        save_trace_to_db(db_conn, run_id, step, f'ar_factor_{k}', ar_tr)
+
+            raw_samples = model.forecast_samples(h=1, n_samples=simulations)
+            draws_std   = raw_samples[:, 0, :]
+            std_vals    = np.array(stds[valid_cols]).flatten()
+            mean_vals   = np.array(means[valid_cols]).flatten()
+            draws_trans = draws_std * std_vals + mean_vals
 
             draws_original = np.full((simulations, len(all_cols)), np.nan)
 

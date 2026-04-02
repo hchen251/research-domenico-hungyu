@@ -26,6 +26,21 @@
                         <option value="60">60 Months</option>
                     </select>
                 </div>
+
+                <!-- Method visibility toggles -->
+                <div class="method-toggles">
+                    <span class="method-toggles-label">Show:</span>
+                    <button id="toggle-dfm" class="toggle-btn toggle-active" title="Toggle DFM forecast">
+                        <span class="toggle-dot dfm-dot"></span> DFM
+                    </button>
+                    <button id="toggle-bayesian" class="toggle-btn toggle-active" title="Toggle Bayesian forecast">
+                        <span class="toggle-dot bay-dot"></span> Bayesian
+                    </button>
+                    <button id="toggle-ci" class="toggle-btn toggle-active" title="Toggle 90% confidence interval">
+                        <span class="toggle-dot ci-dot"></span> 90% CI
+                    </button>
+                </div>
+
                 <button id="theme-toggle" class="theme-btn">Dark Mode</button>
             </div>
         </header>
@@ -72,12 +87,18 @@
                         <table id="metrics-table">
                             <thead>
                                 <tr>
-                                    <th data-sort="series">Series <span class="sort-icon"></span></th>
-                                    <th data-sort="group">Group <span class="sort-icon"></span></th>
-                                    <th data-sort="rmse">RMSE <span class="sort-icon"></span></th>
-                                    <th data-sort="mae">MAE <span class="sort-icon"></span></th>
-                                    <th data-sort="mape">MAPE (%) <span class="sort-icon"></span></th>
-                                    <th data-sort="correlation">Correlation <span class="sort-icon"></span></th>
+                                    <th rowspan="2" data-sort="series">Series <span class="sort-icon"></span></th>
+                                    <th rowspan="2" data-sort="group">Group <span class="sort-icon"></span></th>
+                                    <th colspan="3" class="method-header dfm-header">DFM Forecast</th>
+                                    <th colspan="3" class="method-header bay-header">Bayesian Forecast</th>
+                                </tr>
+                                <tr>
+                                    <th data-sort="dfm_rmse">RMSE <span class="sort-icon"></span></th>
+                                    <th data-sort="dfm_mape">MAPE (%) <span class="sort-icon"></span></th>
+                                    <th data-sort="dfm_correlation">Corr. <span class="sort-icon"></span></th>
+                                    <th data-sort="bay_rmse">RMSE <span class="sort-icon"></span></th>
+                                    <th data-sort="bay_mape">MAPE (%) <span class="sort-icon"></span></th>
+                                    <th data-sort="bay_correlation">Corr. <span class="sort-icon"></span></th>
                                 </tr>
                             </thead>
                             <tbody id="metrics-body">

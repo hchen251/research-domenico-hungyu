@@ -118,6 +118,60 @@ body {
     border-color: var(--accent-color);
 }
 
+/* ==================== Method Toggles ==================== */
+.method-toggles {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.3rem 0.6rem;
+    background-color: var(--bg-tertiary);
+    border-radius: var(--radius);
+    border: 1px solid var(--border-color);
+}
+
+.method-toggles-label {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-right: 0.2rem;
+}
+
+.toggle-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.3rem 0.65rem;
+    border: 1.5px solid var(--border-color);
+    border-radius: 20px;
+    background-color: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--transition);
+    white-space: nowrap;
+}
+
+.toggle-btn:hover {
+    filter: brightness(0.95);
+}
+
+.toggle-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+}
+
+.toggle-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.dfm-dot  { background-color: #dc2626; }
+.bay-dot  { background-color: #7c3aed; }
+.ci-dot   { background-color: rgba(124, 58, 237, 0.35); border: 1.5px solid #7c3aed; width: 10px; height: 10px; border-radius: 2px; }
+
 .main-content {
     display: flex;
     flex: 1;
@@ -293,6 +347,40 @@ body {
     border-bottom: 1px solid var(--border-color);
 }
 
+/* Grouped method header row */
+.method-header {
+    text-align: center !important;
+    font-size: 0.8rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.04em;
+    padding: 0.5rem 1rem !important;
+}
+
+.dfm-header {
+    background-color: rgba(220, 38, 38, 0.08) !important;
+    color: #dc2626 !important;
+    border-left: 2px solid rgba(220, 38, 38, 0.3);
+    border-right: 2px solid rgba(220, 38, 38, 0.3);
+}
+
+.bay-header {
+    background-color: rgba(124, 58, 237, 0.08) !important;
+    color: #7c3aed !important;
+    border-left: 2px solid rgba(124, 58, 237, 0.3);
+    border-right: 2px solid rgba(124, 58, 237, 0.3);
+}
+
+/* Sub-headers under each method group */
+#metrics-table thead tr:last-child th[data-sort^="dfm_"] {
+    background-color: rgba(220, 38, 38, 0.04);
+    border-left: 1px solid rgba(220, 38, 38, 0.15);
+}
+
+#metrics-table thead tr:last-child th[data-sort^="bay_"] {
+    background-color: rgba(124, 58, 237, 0.04);
+    border-left: 1px solid rgba(124, 58, 237, 0.15);
+}
+
 #metrics-table th {
     background-color: var(--bg-tertiary);
     font-weight: 600;
@@ -426,6 +514,25 @@ body {
         transparent 5px,
         transparent 10px
     );
+}
+
+.legend-line.bayesian {
+    background-color: #7c3aed;
+    background-image: repeating-linear-gradient(
+        90deg,
+        #7c3aed,
+        #7c3aed 4px,
+        transparent 4px,
+        transparent 7px
+    );
+}
+
+.legend-ci-band {
+    width: 30px;
+    height: 12px;
+    border-radius: 2px;
+    background-color: rgba(124, 58, 237, 0.2);
+    border: 1px dashed #7c3aed;
 }
 
 .chart-controls {
