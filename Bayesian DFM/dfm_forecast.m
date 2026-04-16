@@ -4,6 +4,15 @@ function dfm_forecast(varargin)
 % Gibbs sampler implemented entirely in native MATLAB — no toolboxes required.
 % Gamma sampling via Marsaglia-Tsang (base MATLAB only).
 %
+% FRED-MD Transformation Codes:
+%   1: x_t           (no transformation)
+%   2: Δx_t          (first difference)
+%   3: Δ²x_t         (second difference)
+%   4: log(x_t)      (log level)
+%   5: Δlog(x_t)     (log first difference)
+%   6: Δ²log(x_t)    (log second difference)
+%   7: Δ(x_t/x_{t-1} - 1)  (first difference of percent change)
+%
 % Outputs:
 %   forecasts.csv        Mean point estimates
 %   forecasts_p5.csv     5th  percentile
@@ -30,12 +39,6 @@ function dfm_forecast(varargin)
 %
 % Example — fill ALL missing data (interior gaps + trailing edge):
 %   dfm_forecast('2026-02-MD.csv', 'complete_data.csv', 'missing', true)
-%
-%   This fills:
-%     - Interior gaps (e.g., quarterly series like UMCSENTx)
-%     - Trailing ragged edge (recent months not yet reported)
-%   Output: Complete historical dataset with all fillable gaps populated
-% dfm_forecast('filled_2026-02-MD.csv', 'bay_60m.csv', 'method', 'bayesian', 'horizon', 60, 'n_factors', 7,'n_samples' , 5000, 'n_tune',2000,'simulations',10000)
 
 % -------------------------------------------------------------------------
 % Parse inputs
@@ -484,6 +487,7 @@ for step = 1:horizon
 end
 end
 
+
 % =========================================================================
 %  DATA LOADING & PREPROCESSING
 % =========================================================================
@@ -531,35 +535,56 @@ end
 
 
 % =========================================================================
-%  TRANSFORMATIONS  (FRED-MD transform codes 1-7)
+%  FORWARD TRANSFORMATIONS (FRED-MD codes 1-7)
+%
+%  Code 1: x_t                      (no transformation)
+%  Code 2: Δx_t = x_t - x_{t-1}     (first difference)
+%  Code 3: Δ²x_t                    (second difference)
+%  Code 4: log(x_t)                 (log level)
+%  Code 5: Δlog(x_t)                (log first difference)
+%  Code 6: Δ²log(x_t)               (log second difference)
+%  Code 7: Δ(x_t/x_{t-1} - 1)       (first difference of percent change)
 % =========================================================================
 function [Y_out, dates_out] = apply_transformations(Y, codes)
 [T, N] = size(Y);
 Y_out  = NaN(T, N);
 
 for j = 1:N
-    s = Y(:, j);
+    x = Y(:, j);
     c = codes(j);
+    
     switch c
-        case 1,  Y_out(:,j) = s;
-        case 2,  Y_out(:,j) = [NaN; diff(s)];
-        case 3,  Y_out(:,j) = [NaN; NaN; diff(diff(s))];
-        case 4
-            s(s <= 0) = NaN;
-            Y_out(:,j) = log(s);
-        case 5
-            s(s <= 0) = NaN;
-            ls = log(s);
-            Y_out(:,j) = [NaN; diff(ls)];
-        case 6
-            s(s <= 0) = NaN;
-            ls = log(s);
-            Y_out(:,j) = [NaN; NaN; diff(diff(ls))];
-        case 7
-            pct        = s(2:end) ./ s(1:end-1) - 1;
-            Y_out(:,j) = [NaN; NaN; diff(pct)];
+        case 1  % x_t (no transformation)
+            Y_out(:,j) = x;
+            
+        case 2  % Δx_t = x_t - x_{t-1}
+            Y_out(2:T, j) = x(2:T) - x(1:T-1);
+            
+        case 3  % Δ²x_t = Δx_t - Δx_{t-1} = x_t - 2*x_{t-1} + x_{t-2}
+            dx = x(2:T) - x(1:T-1);
+            Y_out(3:T, j) = dx(2:end) - dx(1:end-1);
+            
+        case 4  % log(x_t)
+            x(x <= 0) = NaN;
+            Y_out(:,j) = log(x);
+            
+        case 5  % Δlog(x_t) = log(x_t) - log(x_{t-1})
+            x(x <= 0) = NaN;
+            lx = log(x);
+            Y_out(2:T, j) = lx(2:T) - lx(1:T-1);
+            
+        case 6  % Δ²log(x_t) = Δlog(x_t) - Δlog(x_{t-1})
+            x(x <= 0) = NaN;
+            lx = log(x);
+            dlx = lx(2:T) - lx(1:T-1);
+            Y_out(3:T, j) = dlx(2:end) - dlx(1:end-1);
+            
+        case 7  % Δ(x_t/x_{t-1} - 1) = pct_t - pct_{t-1}
+            pct = x(2:T) ./ x(1:T-1) - 1;
+            Y_out(3:T, j) = pct(2:end) - pct(1:end-1);
+            
         otherwise
-            Y_out(:,j) = s;
+            Y_out(:,j) = x;
     end
 end
 
@@ -570,41 +595,90 @@ end
 
 
 % =========================================================================
-%  REVERSE TRANSFORMATIONS  (vectorised over simulations)
+%  REVERSE TRANSFORMATIONS (vectorised over simulations)
+%
+%  Given transformed forecast value(s), recover level using last 2 observations.
+%
+%  Code 1: x_t                      -> out = val
+%  Code 2: Δx_t                     -> x_t = x_{t-1} + Δx_t
+%  Code 3: Δ²x_t                    -> x_t = 2*x_{t-1} - x_{t-2} + Δ²x_t
+%  Code 4: log(x_t)                 -> x_t = exp(val)
+%  Code 5: Δlog(x_t)                -> x_t = x_{t-1} * exp(Δlog(x_t))
+%  Code 6: Δ²log(x_t)               -> x_t = x_{t-1} * exp(Δlog(x_{t-1}) + Δ²log(x_t))
+%  Code 7: Δ(pct)                   -> x_t = x_{t-1} * (1 + pct_{t-1} + Δpct_t)
 % =========================================================================
 function out = reverse_transform_vec(vals, x_t1, x_t2, code)
+% vals  : sim-length column vector (or scalar)
+% x_t1  : scalar, last known value
+% x_t2  : scalar, second-to-last known value
+% code  : integer 1-7
+
 if isnan(x_t1)
     out = NaN(size(vals));
     return
 end
 
 switch code
-    case 1,  out = vals;
-    case 2,  out = x_t1 + vals;
-    case 3,  out = 2*x_t1 - x_t2 + vals;
-    case 4,  out = exp(vals);
-    case 5
-        if x_t1 > 0,  out = x_t1 * exp(vals);
-        else,          out = repmat(x_t1, size(vals));
+    case 1  % x_t (no transformation)
+        out = vals;
+        
+    case 2  % Δx_t -> x_t = x_{t-1} + Δx_t
+        out = x_t1 + vals;
+        
+    case 3  % Δ²x_t -> x_t = 2*x_{t-1} - x_{t-2} + Δ²x_t
+        % Derivation:
+        %   Δx_t = Δx_{t-1} + Δ²x_t
+        %   Δx_{t-1} = x_{t-1} - x_{t-2}
+        %   x_t = x_{t-1} + Δx_t = x_{t-1} + (x_{t-1} - x_{t-2}) + Δ²x_t
+        %       = 2*x_{t-1} - x_{t-2} + Δ²x_t
+        out = 2*x_t1 - x_t2 + vals;
+        
+    case 4  % log(x_t) -> x_t = exp(val)
+        out = exp(vals);
+        
+    case 5  % Δlog(x_t) -> x_t = x_{t-1} * exp(Δlog(x_t))
+        % Derivation:
+        %   Δlog(x_t) = log(x_t) - log(x_{t-1})
+        %   log(x_t) = log(x_{t-1}) + Δlog(x_t)
+        %   x_t = exp(log(x_{t-1}) + Δlog(x_t)) = x_{t-1} * exp(Δlog(x_t))
+        if x_t1 > 0
+            out = x_t1 * exp(vals);
+        else
+            out = repmat(x_t1, size(vals));
         end
-    case 6
+        
+    case 6  % Δ²log(x_t) -> x_t = x_{t-1} * exp(Δlog(x_{t-1}) + Δ²log(x_t))
+        % Derivation:
+        %   Δlog(x_t) = Δlog(x_{t-1}) + Δ²log(x_t)
+        %   Δlog(x_{t-1}) = log(x_{t-1}) - log(x_{t-2})
+        %   log(x_t) = log(x_{t-1}) + Δlog(x_t)
+        %   x_t = x_{t-1} * exp(Δlog(x_{t-1}) + Δ²log(x_t))
         if x_t1 > 0 && x_t2 > 0
             dlog_t1 = log(x_t1) - log(x_t2);
-            out = x_t1 * exp(dlog_t1 + vals);
+            dlog_t = dlog_t1 + vals;
+            out = x_t1 * exp(dlog_t);
         else
             out = repmat(x_t1, size(vals));
         end
-    case 7
-        if x_t1 ~= 0 && x_t2 ~= 0
+        
+    case 7  % Δ(pct) -> x_t = x_{t-1} * (1 + pct_{t-1} + Δpct_t)
+        % Derivation:
+        %   pct_t = pct_{t-1} + Δpct_t
+        %   pct_{t-1} = x_{t-1}/x_{t-2} - 1
+        %   x_t = x_{t-1} * (1 + pct_t) = x_{t-1} * (1 + pct_{t-1} + Δpct_t)
+        if x_t2 ~= 0
             pct_t1 = x_t1/x_t2 - 1;
-            out = x_t1 * (1 + pct_t1 + vals);
+            pct_t = pct_t1 + vals;
+            out = x_t1 * (1 + pct_t);
         else
             out = repmat(x_t1, size(vals));
         end
+        
     otherwise
         out = vals;
 end
 end
+
 
 % =========================================================================
 %  REVERSE TRANSFORMATIONS WITH FULL HISTORY (preserves non-linearity)
@@ -642,23 +716,17 @@ switch code
         % Simple: add to last level
         out = x_t1 + vals;
         
-    case 3  % Second difference: diff(diff(x))
-        % Forecast is change in first difference
-        % First get first difference at t-1
-        if length(history) >= 2
-            delta_t1 = x_t1 - x_t2;
-        else
-            delta_t1 = 0;
-        end
-        % New first difference = old first difference + forecast
-        delta_t = delta_t1 + vals;
-        % New level = old level + new first difference
-        out = x_t1 + delta_t;
+    case 3  % Second difference: Δ²x_t
+        % Derivation:
+        %   Δx_t = Δx_{t-1} + Δ²x_t
+        %   Δx_{t-1} = x_{t-1} - x_{t-2}
+        %   x_t = x_{t-1} + Δx_t = 2*x_{t-1} - x_{t-2} + Δ²x_t
+        out = 2*x_t1 - x_t2 + vals;
         
     case 4  % Log level: log(x)
         out = exp(vals);
         
-    case 5  % Log first difference: diff(log(x))
+    case 5  % Log first difference: Δlog(x_t)
         if x_t1 > 0
             % Extract trend growth rate from history
             if lookback >= 3
@@ -678,7 +746,7 @@ switch code
             out = repmat(x_t1, size(vals));
         end
         
-    case 6  % Log second difference: diff(diff(log(x)))
+    case 6  % Log second difference: Δ²log(x_t)
         if x_t1 > 0 && x_t2 > 0
             % Get historical acceleration
             if lookback >= 4
@@ -690,8 +758,9 @@ switch code
                     % Current growth rate
                     dlog_t1 = log(x_t1) - log(x_t2);
                     
-                    % Forecast growth rate with acceleration + forecast adjustment
-                    dlog_t = dlog_t1 + 0.5 * accel_hist + 0.5 * vals;
+                    % Forecast growth rate: Δlog(x_t) = Δlog(x_{t-1}) + Δ²log(x_t)
+                    % Blend with historical acceleration for stability
+                    dlog_t = dlog_t1 + 0.7 * vals + 0.3 * accel_hist;
                     
                     out = x_t1 .* exp(dlog_t);
                 else
@@ -706,8 +775,8 @@ switch code
             out = repmat(x_t1, size(vals));
         end
         
-    case 7  % Percent change of percent change
-        if x_t1 ~= 0 && x_t2 ~= 0
+    case 7  % Percent change of percent change: Δ(x_t/x_{t-1} - 1)
+        if x_t2 ~= 0
             % Get historical trend in percent changes
             if lookback >= 4
                 pct_changes = diff(recent) ./ recent(1:end-1);
@@ -719,8 +788,9 @@ switch code
                     % Current percent change
                     pct_t1 = (x_t1 - x_t2) / x_t2;
                     
-                    % Forecast percent change with trend + adjustment
-                    pct_t = 0.6 * pct_t1 + 0.2 * avg_pct + 0.2 * vals;
+                    % Forecast percent change: pct_t = pct_{t-1} + Δpct_t
+                    % Blend with historical average for stability
+                    pct_t = pct_t1 + 0.7 * vals + 0.3 * (avg_pct - pct_t1);
                     
                     out = x_t1 .* (1 + pct_t);
                 else
@@ -744,13 +814,16 @@ if code >= 4 && ~all(isnan(history))
     hist_mean = mean(history(~isnan(history)));
     hist_std = std(history(~isnan(history)));
     
-    % Clip to 5 standard deviations
-    lower_bound = hist_mean - 5 * hist_std;
-    upper_bound = hist_mean + 5 * hist_std;
-    
-    out = max(min(out, upper_bound), lower_bound);
+    if hist_std > 0
+        % Clip to 5 standard deviations
+        lower_bound = hist_mean - 5 * hist_std;
+        upper_bound = hist_mean + 5 * hist_std;
+        
+        out = max(min(out, upper_bound), lower_bound);
+    end
 end
 end
+
 
 % =========================================================================
 %  PREPARE DATA FOR MODELING
@@ -783,7 +856,7 @@ if isempty(Y_clean)
 end
 
 means = mean(Y_clean, 1, 'omitnan');
-stds  = std(Y_clean, 0, 1);
+stds  = std(Y_clean, 0, 1, 'omitnan');
 stds(stds == 0) = 1;
 Y_std = (Y_clean - means) ./ stds;
 end
@@ -850,7 +923,7 @@ Lambda_store = zeros(n_samples, N, K);
 Psi_store    = zeros(n_samples, N);
 Phi_store    = zeros(n_samples, K);
 Sigma2_store = zeros(n_samples, K);
-F_store      = zeros(n_samples, T, K);  % ← MAKE SURE THIS IS HERE
+F_store      = zeros(n_samples, T, K);
 
 for i = 1:n_total
     F             = sample_factors(Y, Lambda, Psi, Phi, Sigma2);
@@ -864,7 +937,7 @@ for i = 1:n_total
         Psi_store(s,:)      = Psi';
         Phi_store(s,:)      = Phi';
         Sigma2_store(s,:)   = Sigma2';
-        F_store(s,:,:)      = F;  % ← MAKE SURE THIS IS HERE
+        F_store(s,:,:)      = F;
     end
 
     if verbose && mod(i, 500) == 0
@@ -883,7 +956,7 @@ mdl.Lambda_store  = Lambda_store;
 mdl.Psi_store     = Psi_store;
 mdl.Phi_store     = Phi_store;
 mdl.Sigma2_store  = Sigma2_store;
-mdl.F_store       = F_store;  % ← MAKE SURE THIS IS HERE
+mdl.F_store       = F_store;
 mdl.loadings      = squeeze(mean(Lambda_store, 1));
 mdl.factors       = squeeze(mean(F_store, 1));
 mdl.Psi           = mean(Psi_store, 1)';
@@ -905,7 +978,7 @@ N      = mdl.N;
 out    = zeros(n_sims, h, N);
 
 if strcmp(mdl.type, 'efficient')
-    %% EFFICIENT MODEL (keep as is)
+    %% EFFICIENT MODEL
     ar_c    = mdl.ar_intercepts(:);
     ar_phi  = mdl.ar_coefs(:);
     ar_sig  = mdl.ar_sigmas(:);
@@ -960,7 +1033,9 @@ else
     %% BAYESIAN MODEL - FULL POSTERIOR PREDICTIVE DISTRIBUTION
     n_post = size(mdl.Lambda_store, 1);
     
-    fprintf('      Generating %d forecast paths using full posterior...\n', n_sims);
+    if n_sims > 500
+        fprintf('      Generating %d forecast paths using full posterior...\n', n_sims);
+    end
     
     for i = 1:n_sims
         % =====================================================================
@@ -999,8 +1074,8 @@ else
             t = (1:lookback)';
             y = F_recent(:, k);
             if sum(~isnan(y)) > 3
-                p = polyfit(t, y, 1);
-                trend(k) = p(1) * lookback;  % Trend component
+                pp = polyfit(t, y, 1);
+                trend(k) = pp(1) * lookback;  % Trend component
             end
         end
         
@@ -1188,14 +1263,17 @@ else
         out(i, :, :) = Y_forecast;
         
         % Progress reporting
-        if mod(i, 1000) == 0
+        if mod(i, 1000) == 0 && n_sims > 500
             fprintf('        ... %d/%d paths complete\n', i, n_sims);
         end
     end
     
-    fprintf('      Forecast simulation complete!\n');
+    if n_sims > 500
+        fprintf('      Forecast simulation complete!\n');
+    end
 end
 end
+
 
 % =========================================================================
 %  GIBBS SAMPLING STEPS
@@ -1219,12 +1297,15 @@ P_pred = diag(Sigma2 ./ max(1 - Phi.^2, 1e-6));
 m_pred = zeros(K, 1);
 
 for t = 1:T
-    P_pred_inv = (P_pred + eye_K*1e-8) \ eye_K;
+    P_pred_reg = P_pred + eye_K * 1e-8;
+    P_pred_inv = P_pred_reg \ eye_K;
     Omega_post = P_pred_inv + LPsiInvL;
-    P_post     = 0.5 * (Omega_post \ eye_K);
-    P_post     = P_post + P_post';
-    P_post     = P_post * 0.5;
-    m_post     = P_post * (P_pred_inv * m_pred + LPsiInvY(:, t));
+    
+    % FIXED: Correct posterior covariance (removed erroneous 0.5 factor)
+    P_post = Omega_post \ eye_K;
+    P_post = 0.5 * (P_post + P_post');  % Symmetrize for numerical stability
+    
+    m_post = P_post * (P_pred_inv * m_pred + LPsiInvY(:, t));
 
     m_filt(t, :)    = m_post';
     P_filt(:, :, t) = P_post;
@@ -1239,12 +1320,17 @@ F       = zeros(T, K);
 F(T, :) = mvn_sample(m_filt(T,:)', P_filt(:,:,T))';
 
 for t = T-1:-1:1
-    P_pred_next = Phi_mat * P_filt(:,:,t) * Phi_mat' + Sigma2_mat;
-    G           = P_filt(:,:,t) * Phi_mat' * ((P_pred_next + eye_K*1e-8) \ eye_K);
-    m_smooth    = m_filt(t,:)' + G * (F(t+1,:)' - Phi .* m_filt(t,:)');
-    P_smooth    = P_filt(:,:,t) - G * P_pred_next * G';
-    P_smooth    = 0.5 * (P_smooth + P_smooth');
-    F(t, :)     = mvn_sample(m_smooth, P_smooth)';
+    P_t = P_filt(:,:,t);
+    P_pred_tp1 = Phi_mat * P_t * Phi_mat' + Sigma2_mat + eye_K * 1e-8;
+    
+    % FIXED: Correct smoothing gain and covariance
+    G = P_t * Phi_mat' / P_pred_tp1;
+    
+    m_smooth = m_filt(t,:)' + G * (F(t+1,:)' - Phi .* m_filt(t,:)');
+    P_smooth = P_t - G * Phi_mat * P_t;
+    P_smooth = 0.5 * (P_smooth + P_smooth');  % Symmetrize
+    
+    F(t, :) = mvn_sample(m_smooth, P_smooth)';
 end
 end
 
@@ -1270,13 +1356,15 @@ function Psi = sample_psi(Y, F, Lambda)
 [T, N] = size(Y);
 resid  = Y - F * Lambda';
 a0     = 3;
-b0     = 4;
+b0     = 2;
 Psi    = zeros(N, 1);
 
 for i = 1:N
     a_post = a0 + T/2;
     b_post = b0 + 0.5 * sum(resid(:,i).^2);
-    Psi(i) = 1 / gamma_rnd(a_post, 1/b_post);
+    % FIXED: Correct Inverse-Gamma sampling
+    % If X ~ Gamma(a, 1), then b/X ~ Inv-Gamma(a, b)
+    Psi(i) = b_post / gamma_rnd(a_post, 1);
 end
 Psi = min(max(Psi, 1e-6), 1e4);
 end
@@ -1287,7 +1375,7 @@ function [Phi, Sigma2] = sample_ar(F)
 Phi     = zeros(K, 1);
 Sigma2  = ones(K, 1);
 a0      = 3;
-b0      = 4;
+b0      = 1;  % Prior: Sigma2 ~ Inv-Gamma(3, 1)
 
 for k = 1:K
     f_lag    = F(1:end-1, k);
@@ -1302,7 +1390,8 @@ for k = 1:K
     resid_ar  = f_cur - Phi(k) * f_lag;
     a_post    = a0 + (T-1)/2;
     b_post    = b0 + 0.5 * (resid_ar' * resid_ar);
-    Sigma2(k) = 1 / gamma_rnd(a_post, 1/b_post);
+    % FIXED: Correct Inverse-Gamma sampling
+    Sigma2(k) = b_post / gamma_rnd(a_post, 1);
 end
 Sigma2 = min(max(Sigma2, 1e-6), 1e4);
 end
@@ -1313,27 +1402,57 @@ end
 % =========================================================================
 
 function x = mvn_sample(mu, P)
-P = P + eye(size(P,1)) * 1e-8;
+% Draw one sample from N(mu, P)
+n = length(mu);
+P = P + eye(n) * 1e-8;
 try
     L = chol(P, 'lower');
     x = mu + L * randn(size(mu));
 catch
-    x = mu;
+    % Fallback: eigendecomposition if Cholesky fails
+    [V, D] = eig(P);
+    D = max(real(diag(D)), 1e-8);
+    x = mu + V * (sqrt(D) .* randn(n, 1));
 end
 end
 
 
 function x = sample_truncated_normal(mu, sigma, lo, hi)
-for attempt = 1:200
-    x = mu + sigma * randn();
-    if x > lo && x < hi, return; end
+% FIXED: Use inverse CDF method for efficiency and correctness
+% Draw from N(mu, sigma^2) truncated to (lo, hi)
+
+a = (lo - mu) / sigma;
+b = (hi - mu) / sigma;
+
+% Standard normal CDF using erf
+Phi_a = 0.5 * (1 + erf(a / sqrt(2)));
+Phi_b = 0.5 * (1 + erf(b / sqrt(2)));
+
+% Handle edge cases
+if Phi_b - Phi_a < 1e-10
+    % Interval too small, return midpoint
+    x = (lo + hi) / 2;
+    return
 end
-x = max(lo + 1e-4, min(hi - 1e-4, mu));
+
+% Sample uniform and transform via inverse CDF
+u = Phi_a + rand() * (Phi_b - Phi_a);
+
+% Clamp to avoid numerical issues at boundaries
+u = max(min(u, 1 - 1e-10), 1e-10);
+
+% Inverse CDF (probit function)
+x = mu + sigma * sqrt(2) * erfinv(2*u - 1);
+
+% Safety bounds
+x = max(lo + 1e-6, min(hi - 1e-6, x));
 end
 
 
 function Y = interp_time_limit(Y, max_gap)
-for j = 1:size(Y, 2)
+% Linear interpolation for interior NaN gaps up to max_gap steps.
+[T, N] = size(Y);
+for j = 1:N
     col = Y(:, j);
     idx = find(~isnan(col));
     if length(idx) < 2, continue; end
@@ -1353,6 +1472,7 @@ end
 
 
 function Y = ffill(Y)
+% Forward-fill NaN values column-wise
 [T, N] = size(Y);
 for j = 1:N
     for t = 2:T
@@ -1365,6 +1485,7 @@ end
 
 
 function Y = bfill(Y)
+% Backward-fill NaN values column-wise
 [T, N] = size(Y);
 for j = 1:N
     for t = T-1:-1:1
@@ -1390,6 +1511,8 @@ end
 
 
 function x = gamma_rnd(a, b)
+% Marsaglia-Tsang method for Gamma(a, b)
+% Returns X ~ Gamma(a, b) where E[X] = a*b
 if a < 1
     x = gamma_rnd(a + 1, b) * rand()^(1/a);
     return
