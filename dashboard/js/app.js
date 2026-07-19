@@ -1,985 +1,952 @@
-// ==================== Configuration ====================
+// ============================================================
+//  CONFIG
+// ============================================================
 const CONFIG = {
-    horizons: [1, 4, 12, 24, 60],
+    api: '',   // same origin — server.py serves both API and static
     groups: {
-        1: 'Output and Income',
-        2: 'Labor Market',
-        3: 'Housing',
-        4: 'Consumption, Orders & Inventories',
-        5: 'Money and Credit',
-        6: 'Interest and Exchange Rates',
-        7: 'Prices',
-        8: 'Stock Market'
-    },
-    seriesGroups: {
-        // Group 1: Output and Income
-        'RPI': 1, 'W875RX1': 1, 'DPCERA3M086SBEA': 1, 'CMRMTSPLx': 1, 'RETAILx': 1,
-        'INDPRO': 1, 'IPFPNSS': 1, 'IPFINAL': 1, 'IPCONGD': 1, 'IPDCONGD': 1,
-        'IPNCONGD': 1, 'IPBUSEQ': 1, 'IPMAT': 1, 'IPDMAT': 1, 'IPNMAT': 1,
-        'IPMANSICS': 1, 'IPB51222S': 1, 'IPFUELS': 1, 'CUMFNS': 1,
-        // Group 2: Labor Market
-        'HWI': 2, 'HWIURATIO': 2, 'CLF16OV': 2, 'CE16OV': 2, 'UNRATE': 2,
-        'UEMPMEAN': 2, 'UEMPLT5': 2, 'UEMP5TO14': 2, 'UEMP15OV': 2, 'UEMP15T26': 2,
-        'UEMP27OV': 2, 'CLAIMSx': 2, 'PAYEMS': 2, 'USGOOD': 2, 'CES1021000001': 2,
-        'USCONS': 2, 'MANEMP': 2, 'DMANEMP': 2, 'NDMANEMP': 2, 'SRVPRD': 2,
-        'USTPU': 2, 'USWTRADE': 2, 'USTRADE': 2, 'USFIRE': 2, 'USGOVT': 2,
-        'CES0600000007': 2, 'AWOTMAN': 2, 'AWHMAN': 2,
-        'CES0600000008': 2, 'CES2000000008': 2, 'CES3000000008': 2,
-        // Group 3: Housing
-        'HOUST': 3, 'HOUSTNE': 3, 'HOUSTMW': 3, 'HOUSTS': 3, 'HOUSTW': 3,
-        'PERMIT': 3, 'PERMITNE': 3, 'PERMITMW': 3, 'PERMITS': 3, 'PERMITW': 3,
-        // Group 4: Consumption, Orders & Inventories
-        'ACOGNO': 4, 'AMDMNOx': 4, 'ANDENOx': 4, 'AMDMUOx': 4, 'BUSINVx': 4,
-        'ISRATIOx': 4, 'UMCSENTx': 4,
-        // Group 5: Money and Credit
-        'M1SL': 5, 'M2SL': 5, 'M2REAL': 5, 'BOGMBASE': 5, 'TOTRESNS': 5,
-        'NONBORRES': 5, 'BUSLOANS': 5, 'REALLN': 5, 'NONREVSL': 5, 'CONSPI': 5,
-        'DTCOLNVHFNM': 5, 'DTCTHFNM': 5, 'INVEST': 5,
-        // Group 6: Interest and Exchange Rates
-        'FEDFUNDS': 6, 'CP3Mx': 6, 'TB3MS': 6, 'TB6MS': 6, 'GS1': 6, 'GS5': 6,
-        'GS10': 6, 'AAA': 6, 'BAA': 6, 'COMPAPFFx': 6, 'TB3SMFFM': 6, 'TB6SMFFM': 6,
-        'T1YFFM': 6, 'T5YFFM': 6, 'T10YFFM': 6, 'AAAFFM': 6, 'BAAFFM': 6,
-        'TWEXAFEGSMTHx': 6, 'EXSZUSx': 6, 'EXJPUSx': 6, 'EXUSUKx': 6, 'EXCAUSx': 6,
-        // Group 7: Prices
-        'WPSFD49207': 7, 'WPSFD49502': 7, 'WPSID61': 7, 'WPSID62': 7, 'OILPRICEx': 7,
-        'PPICMM': 7, 'CPIAUCSL': 7, 'CPIAPPSL': 7, 'CPITRNSL': 7, 'CPIMEDSL': 7,
-        'CUSR0000SAC': 7, 'CUSR0000SAD': 7, 'CUSR0000SAS': 7, 'CPIULFSL': 7,
-        'CUSR0000SA0L2': 7, 'CUSR0000SA0L5': 7, 'PCEPI': 7,
-        'DDURRG3M086SBEA': 7, 'DNDGRG3M086SBEA': 7, 'DSERRG3M086SBEA': 7,
-        // Group 8: Stock Market
-        'S&P 500': 8, 'S&P div yield': 8, 'S&P PE ratio': 8, 'VIXCLSx': 8,
-        'S_P500': 8, 'S_PDivYield': 8, 'S_PPERatio': 8
+        1:'Output and Income', 2:'Labor Market', 3:'Housing',
+        4:'Consumption, Orders & Inventories', 5:'Money and Credit',
+        6:'Interest and Exchange Rates', 7:'Prices', 8:'Stock Market'
     },
     historyMonths: 24,
-    actualColor: '#2563eb',
+    actualColor:   '#2563eb',
     forecastColor: '#dc2626',
     bayesianColor: '#7c3aed',
-    ciColor: 'rgba(124, 58, 237, 0.12)',
-    dataPath: 'data/'
+    ciColor:       'rgba(124,58,237,0.12)'
 };
 
-// Mapping from Bayesian column names (underscores) to DFM column names (special chars)
-const BAYESIAN_COL_MAP = {
-    'S_P500': 'S&P 500',
-    'S_PDivYield': 'S&P div yield',
-    'S_PPERatio': 'S&P PE ratio'
-};
-
-// Reverse map: DFM name → Bayesian name
-const DFM_TO_BAYESIAN_MAP = {};
-for (const [bayKey, dfmKey] of Object.entries(BAYESIAN_COL_MAP)) {
-    DFM_TO_BAYESIAN_MAP[dfmKey] = bayKey;
-}
-
-// ==================== State ====================
-let state = {
-    seriesList: [],
-    actualData: [],
-    forecastData: [],           // DFM forecast (horizon-specific)
-    bayesianData: null,         // { median: [], p5: [], p95: [] } — per horizon, like DFM
-    selectedHorizon: 12,
-    selectedGroups: new Set(),
-    selectedSeries: new Set(),
-    sortColumn: null,
-    sortDirection: 'asc',
-    showDFM: true,
-    showBayesian: true,
-    showCI: true
-};
-
-// ==================== DOM Elements ====================
-const elements = {
-    horizon: document.getElementById('horizon'),
-    themeToggle: document.getElementById('theme-toggle'),
-    groupCheckboxes: document.getElementById('group-checkboxes'),
-    seriesCheckboxes: document.getElementById('series-checkboxes'),
-    seriesSearch: document.getElementById('series-search'),
-    selectAllGroups: document.getElementById('select-all-groups'),
-    clearAllGroups: document.getElementById('clear-all-groups'),
-    selectAllSeries: document.getElementById('select-all-series'),
-    clearAllSeries: document.getElementById('clear-all-series'),
-    selectedCount: document.getElementById('selected-count'),
-    metricsBody: document.getElementById('metrics-body'),
-    metricsTable: document.getElementById('metrics-table'),
-    chartsContainer: document.getElementById('charts-container'),
-    loading: document.getElementById('loading'),
-    toggleDFM: document.getElementById('toggle-dfm'),
-    toggleBayesian: document.getElementById('toggle-bayesian'),
-    toggleCI: document.getElementById('toggle-ci')
-};
-
-// ==================== Chart Instances ====================
-let chartInstances = {};
-
-// ==================== Utility Functions ====================
-function showLoading() {
-    elements.loading.classList.add('active');
-}
-
-function hideLoading() {
-    elements.loading.classList.remove('active');
-}
-
-function normalizeDate(date) {
-    const d = new Date(date);
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    return year + '-' + month;
-}
-
-function parseDate(dateStr) {
-    if (!dateStr) return null;
-    const formats = [
-        /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/,
-        /^(\d{4})-(\d{2})-(\d{2})$/,
-        /^(\d{4})\/(\d{2})\/(\d{2})$/
-    ];
-    for (const format of formats) {
-        const match = dateStr.match(format);
-        if (match) {
-            if (format === formats[0]) {
-                return new Date(parseInt(match[3]), parseInt(match[1]) - 1, parseInt(match[2]));
-            } else {
-                return new Date(parseInt(match[1]), parseInt(match[2]) - 1, parseInt(match[3]));
-            }
-        }
+// ============================================================
+//  API CLIENT
+//  All data comes from the FastAPI server — no CSV parsing in JS.
+//  date_key format returned by API: YYYY-MM
+// ============================================================
+async function apiFetch(path) {
+    const url = CONFIG.api + path;
+    const res = await fetch(url);
+    if (!res.ok) {
+        const txt = await res.text().catch(() => res.statusText);
+        throw new Error(`API ${res.status} — ${url}\n${txt}`);
     }
-    const d = new Date(dateStr);
-    return isNaN(d.getTime()) ? null : d;
+    return res.json();
 }
 
-function getHorizonLabel(horizon) {
-    if (horizon === 1) return '1 Month';
-    return horizon + ' Months';
+// Convert YYYY-MM date key to a JS timestamp (first of month, UTC noon)
+function keyToTs(key) {
+    const [y, m] = key.split('-').map(Number);
+    return Date.UTC(y, m - 1, 15);   // mid-month avoids DST ambiguity
 }
 
-function getSeriesGroup(seriesName) {
-    return CONFIG.seriesGroups[seriesName] || 1;
+// Display label from YYYY-MM key
+function keyToLabel(key) {
+    const [y, m] = key.split('-');
+    return m + '/' + y;              // e.g. "01/2000"
 }
 
-// Resolve the column key to use when looking up a series in Bayesian data
-// Bayesian files use underscores for S&P columns
-function bayesianColKey(seriesName) {
-    return DFM_TO_BAYESIAN_MAP[seriesName] || seriesName;
+// Shared variable list (loaded once, used by both tabs)
+let varList = [];  // [{name, group_id, group_name}]
+
+async function ensureVarList() {
+    if (varList.length) return varList;
+    varList = await apiFetch('/api/variables');
+    return varList;
 }
 
-// ==================== Data Loading ====================
-async function loadCSV(path) {
-    return new Promise(function(resolve, reject) {
-        Papa.parse(path, {
-            download: true,
-            header: true,
-            skipEmptyLines: true,
-            dynamicTyping: false,
-            complete: function(results) {
-                console.log('Loaded ' + path + ': ' + results.data.length + ' rows');
-                resolve(results.data);
-            },
-            error: function(error) {
-                console.error('Error loading ' + path + ':', error);
-                reject(error);
-            }
-        });
+// ============================================================
+//  TAB MANAGEMENT
+// ============================================================
+let activeTab = 'spaghetti';
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const tab = btn.dataset.tab;
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + tab));
+        activeTab = tab;
+        if (tab === 'forecast' && !fxState.initialized) fxInit();
     });
-}
+});
 
-function parseForecastRows(data) {
-    const rows = [];
-    for (const row of data) {
-        const dateStr = row.sasdate;
-        if (dateStr && (dateStr.toLowerCase().includes('transform') || dateStr.toLowerCase().includes(':'))) {
-            continue;
-        }
-        const date = parseDate(dateStr);
-        if (!date) continue;
-        const parsedRow = { date: date, dateKey: normalizeDate(date) };
-        for (const key of Object.keys(row)) {
-            if (key !== 'sasdate' && key !== '') {
-                const numVal = parseFloat(row[key]);
-                parsedRow[key] = (row[key] === '' || row[key] === null || isNaN(numVal)) ? null : numVal;
-            }
-        }
-        rows.push(parsedRow);
-    }
-    rows.sort(function(a, b) { return a.date - b.date; });
-    return rows;
-}
-
-async function loadActualData() {
-    const data = await loadCSV(CONFIG.dataPath + 'filled_2026-02-MD.csv');
-    const actualData = [];
-    const seriesSet = new Set();
-    for (let i = 0; i < data.length; i++) {
-        const row = data[i];
-        const dateStr = row.sasdate;
-        if (dateStr && (dateStr.toLowerCase().includes('transform') || dateStr.toLowerCase().includes(':'))) {
-            continue;
-        }
-        const date = parseDate(dateStr);
-        if (!date) continue;
-        const parsedRow = { date: date, dateKey: normalizeDate(date) };
-        for (const key of Object.keys(row)) {
-            if (key !== 'sasdate' && key !== '') {
-                const numVal = parseFloat(row[key]);
-                parsedRow[key] = (row[key] === '' || row[key] === null || isNaN(numVal)) ? null : numVal;
-                seriesSet.add(key);
-            }
-        }
-        actualData.push(parsedRow);
-    }
-    actualData.sort(function(a, b) { return a.date - b.date; });
-    state.seriesList = Array.from(seriesSet).map(function(name) {
-        return { fred: name, group: getSeriesGroup(name), description: name };
-    }).sort(function(a, b) { return a.fred.localeCompare(b.fred); });
-    console.log('Actual data loaded: ' + actualData.length + ' rows, ' + state.seriesList.length + ' series');
-    return actualData;
-}
-
-async function loadForecastData(horizon) {
-    const filename = 'dfm_' + horizon + 'm.csv';
-    try {
-        const data = await loadCSV(CONFIG.dataPath + filename);
-        const rows = parseForecastRows(data);
-        console.log('DFM forecast ' + filename + ' loaded: ' + rows.length + ' rows');
-        return rows;
-    } catch (error) {
-        console.warn('Could not load ' + filename + ':', error);
-        return [];
-    }
-}
-
-// Bayesian data is per-horizon, same structure as DFM.
-// Files: bay_{h}m.csv, bay_{h}m_p5.csv, bay_{h}m_p95.csv
-async function loadBayesianData(horizon) {
-    const base = 'bay_' + horizon + 'm';
-    try {
-        const [medianRaw, p5Raw, p95Raw] = await Promise.all([
-            loadCSV(CONFIG.dataPath + base + '.csv'),
-            loadCSV(CONFIG.dataPath + base + '_p5.csv'),
-            loadCSV(CONFIG.dataPath + base + '_p95.csv')
-        ]);
-        const result = {
-            median: parseForecastRows(medianRaw),
-            p5: parseForecastRows(p5Raw),
-            p95: parseForecastRows(p95Raw)
-        };
-        console.log('Bayesian data loaded: ' + result.median.length + ' median rows');
-        return result;
-    } catch (error) {
-        console.warn('Could not load Bayesian data:', error);
-        return null;
-    }
-}
-
-async function loadAllData() {
-    showLoading();
-    try {
-        [state.actualData, state.forecastData, state.bayesianData] = await Promise.all([
-            loadActualData(),
-            loadForecastData(state.selectedHorizon),
-            loadBayesianData(state.selectedHorizon)
-        ]);
-        hideLoading();
-    } catch (error) {
-        console.error('Error loading data:', error);
-        hideLoading();
-        alert('Error loading data. Check console for details.');
-    }
-}
-
-async function loadForecastForHorizon(horizon) {
-    [state.forecastData, state.bayesianData] = await Promise.all([
-        loadForecastData(horizon),
-        loadBayesianData(horizon)
-    ]);
-    console.log('DFM + Bayesian reloaded for horizon: ' + horizon);
-}
-
-// ==================== UI Rendering ====================
-function renderGroupCheckboxes() {
-    elements.groupCheckboxes.innerHTML = '';
-    for (const groupId of Object.keys(CONFIG.groups)) {
-        const groupName = CONFIG.groups[groupId];
-        const div = document.createElement('div');
-        div.className = 'checkbox-item';
-        const seriesCount = state.seriesList.filter(function(s) {
-            return s.group === parseInt(groupId);
-        }).length;
-        div.innerHTML =
-            '<input type="checkbox" id="group-' + groupId + '" value="' + groupId + '">' +
-            '<label for="group-' + groupId + '">' + groupId + '. ' + groupName + '</label>' +
-            '<span class="group-badge">' + seriesCount + '</span>';
-        const checkbox = div.querySelector('input');
-        checkbox.addEventListener('change', function() {
-            handleGroupChange(parseInt(groupId), checkbox.checked);
-        });
-        elements.groupCheckboxes.appendChild(div);
-    }
-}
-
-function renderSeriesCheckboxes() {
-    elements.seriesCheckboxes.innerHTML = '';
-    const searchTerm = elements.seriesSearch.value.toLowerCase();
-    let allSeries = state.seriesList.filter(function(s) {
-        return s.fred.toLowerCase().includes(searchTerm) ||
-               (s.description && s.description.toLowerCase().includes(searchTerm));
-    });
-    if (allSeries.length === 0) {
-        elements.seriesCheckboxes.innerHTML = '<div class="empty-state"><p>No series found</p></div>';
-        return;
-    }
-    const selectedGroupSeries = allSeries.filter(function(s) {
-        return state.selectedGroups.has(s.group);
-    });
-    const unselectedGroupSeries = allSeries.filter(function(s) {
-        return !state.selectedGroups.has(s.group);
-    });
-    const selectedByGroup = {};
-    for (const series of selectedGroupSeries) {
-        if (!selectedByGroup[series.group]) selectedByGroup[series.group] = [];
-        selectedByGroup[series.group].push(series);
-    }
-    for (const groupId of Object.keys(selectedByGroup)) {
-        selectedByGroup[groupId].sort(function(a, b) { return a.fred.localeCompare(b.fred); });
-    }
-    unselectedGroupSeries.sort(function(a, b) {
-        return a.fred.toLowerCase().localeCompare(b.fred.toLowerCase());
-    });
-    const sortedGroupIds = Object.keys(selectedByGroup).sort(function(a, b) {
-        return parseInt(a) - parseInt(b);
-    });
-    for (const groupId of sortedGroupIds) {
-        const seriesList = selectedByGroup[groupId];
-        const groupHeader = document.createElement('div');
-        groupHeader.className = 'series-group-header selected-group';
-        groupHeader.innerHTML = '<strong>' + CONFIG.groups[groupId] + '</strong>';
-        groupHeader.style.cssText = 'padding: 0.5rem; margin-top: 0.5rem; font-size: 0.8rem; color: var(--accent-color); background-color: var(--bg-tertiary); border-radius: 4px;';
-        elements.seriesCheckboxes.appendChild(groupHeader);
-        for (const series of seriesList) {
-            renderSeriesCheckbox(series, true);
-        }
-    }
-    if (unselectedGroupSeries.length > 0 && state.selectedGroups.size > 0) {
-        const otherHeader = document.createElement('div');
-        otherHeader.className = 'series-group-header';
-        otherHeader.innerHTML = '<strong>Other Series</strong>';
-        otherHeader.style.cssText = 'padding: 0.5rem; margin-top: 0.5rem; font-size: 0.8rem; color: var(--text-secondary);';
-        elements.seriesCheckboxes.appendChild(otherHeader);
-    }
-    for (const series of unselectedGroupSeries) {
-        renderSeriesCheckbox(series, false);
-    }
-}
-
-function renderSeriesCheckbox(series, isInSelectedGroup) {
-    const div = document.createElement('div');
-    div.className = 'checkbox-item';
-    if (isInSelectedGroup) div.classList.add('in-selected-group');
-    const safeId = series.fred.replace(/[^a-zA-Z0-9]/g, '_');
-    const isChecked = state.selectedSeries.has(series.fred) ? 'checked' : '';
-    div.innerHTML =
-        '<input type="checkbox" id="series-' + safeId + '" value="' + series.fred + '" ' + isChecked + '>' +
-        '<label for="series-' + safeId + '" title="' + (series.description || '') + '">' + series.fred + '</label>' +
-        '<span class="group-badge">' + series.group + '</span>';
-    const checkbox = div.querySelector('input');
-    checkbox.addEventListener('change', function() {
-        handleSeriesChange(series.fred, checkbox.checked);
-    });
-    elements.seriesCheckboxes.appendChild(div);
-}
-
-function updateSelectedCount() {
-    elements.selectedCount.textContent = state.selectedSeries.size + ' series selected';
-}
-
-function updateToggleButtons() {
-    updateToggleBtn(elements.toggleDFM, state.showDFM, CONFIG.forecastColor);
-    updateToggleBtn(elements.toggleBayesian, state.showBayesian, CONFIG.bayesianColor);
-    if (elements.toggleCI) {
-        elements.toggleCI.classList.toggle('toggle-active', state.showCI);
-        elements.toggleCI.style.opacity = state.showBayesian ? '1' : '0.4';
-        elements.toggleCI.disabled = !state.showBayesian;
-    }
-}
-
-function updateToggleBtn(btn, active, color) {
-    if (!btn) return;
-    btn.classList.toggle('toggle-active', active);
-    btn.style.borderColor = active ? color : 'var(--border-color)';
-    btn.style.color = active ? color : 'var(--text-secondary)';
-    btn.style.backgroundColor = active ? (color + '18') : 'var(--bg-tertiary)';
-}
-
-// ==================== Event Handlers ====================
-function handleGroupChange(groupId, checked) {
-    if (checked) {
-        state.selectedGroups.add(groupId);
-    } else {
-        state.selectedGroups.delete(groupId);
-        const groupSeries = state.seriesList.filter(function(s) { return s.group === groupId; });
-        for (const series of groupSeries) state.selectedSeries.delete(series.fred);
-    }
-    renderSeriesCheckboxes();
-    updateSelectedCount();
-    updateDashboard();
-}
-
-function handleSeriesChange(seriesName, checked) {
-    if (checked) {
-        state.selectedSeries.add(seriesName);
-    } else {
-        state.selectedSeries.delete(seriesName);
-    }
-    updateSelectedCount();
-    updateDashboard();
-}
-
-async function handleHorizonChange(horizon) {
-    showLoading();
-    state.selectedHorizon = horizon;
-    await loadForecastForHorizon(horizon);
-    hideLoading();
-    updateDashboard();
-}
-
-function handleThemeToggle() {
+document.getElementById('theme-toggle').addEventListener('click', () => {
     document.body.classList.toggle('dark-theme');
     document.body.classList.toggle('light-theme');
-    const isDark = document.body.classList.contains('dark-theme');
-    elements.themeToggle.textContent = isDark ? 'Light Mode' : 'Dark Mode';
-    updateCharts();
-}
+    document.getElementById('theme-toggle').textContent =
+        document.body.classList.contains('dark-theme') ? 'Light Mode' : 'Dark Mode';
+    if (spag.chart) spagRebuildChart();
+    if (activeTab === 'forecast') fxUpdateCharts();
+});
 
-function handleSelectAllGroups() {
-    for (let i = 1; i <= 8; i++) {
-        state.selectedGroups.add(i);
-        const checkbox = document.getElementById('group-' + i);
-        if (checkbox) checkbox.checked = true;
-    }
-    renderSeriesCheckboxes();
-    updateSelectedCount();
-    updateDashboard();
-}
+// ============================================================
+//  ████  SPAGHETTI MODULE  ████
+// ============================================================
+const spag = {
+    variable:   null,
+    horizon:    1,
+    nLines:     50,
+    showCI:     true,
+    showReal:   true,
+    originFreq: 1,     // 1 = every 1Y, 5 = every 5Y
+    data:       null,  // API response: {variable, horizon, n_draws, origins}
+    actualPts:  null,  // [{ts, value}] from /api/actual
+    tsMin:      0,
+    tsMax:      0,
+    viewLo:     0,     // 0–1000 slider
+    viewHi:     1000,
+    chart:      null,
+    cache:      new Map()  // key: `${variable}_h${horizon}` → data
+};
 
-function handleClearAllGroups() {
-    state.selectedGroups.clear();
-    state.selectedSeries.clear();
-    for (let i = 1; i <= 8; i++) {
-        const checkbox = document.getElementById('group-' + i);
-        if (checkbox) checkbox.checked = false;
-    }
-    renderSeriesCheckboxes();
-    updateSelectedCount();
-    updateDashboard();
-}
+// ── Custom Chart.js plugin: draws all spaghetti fans on canvas ────────────
+// Palette: cycles through these colours for successive forecast fans
+const FAN_COLORS = [
+    '#2563eb',  // blue
+    '#dc2626',  // red
+    '#16a34a',  // green
+    '#9333ea',  // purple
+    '#ea580c',  // orange
+    '#0891b2',  // cyan
+    '#be185d',  // pink
+];
+// Dash patterns mirror the reference chart style
+const FAN_DASH = [
+    [6, 4],     // blue dashed  (Fed style)
+    [4, 3, 1, 3], // red dash-dot (Market style)
+    [8, 4],
+    [4, 4],
+    [6, 3, 1, 3],
+    [10, 4],
+    [3, 3],
+];
 
-function handleSelectAllSeries() {
-    const visibleSeries = state.seriesList.filter(function(s) {
-        return state.selectedGroups.has(s.group);
-    });
-    for (const series of visibleSeries) state.selectedSeries.add(series.fred);
-    renderSeriesCheckboxes();
-    updateSelectedCount();
-    updateDashboard();
-}
+const SpaghettiPlugin = {
+    id: 'spaghettiRenderer',
+    beforeDatasetsDraw(chart) {
+        if (!spag.data || !spag.actualPts) return;
+        const { ctx, chartArea: ca, scales: { x, y } } = chart;
+        if (!ca) return;
 
-function handleClearAllSeries() {
-    state.selectedSeries.clear();
-    renderSeriesCheckboxes();
-    updateSelectedCount();
-    updateDashboard();
-}
+        const dark   = document.body.classList.contains('dark-theme');
+        const dotBdr = dark ? '#1e293b' : '#ffffff';
 
-// ==================== Metrics Calculation ====================
-function getSeriesData(seriesName) {
-    const seriesInfo = state.seriesList.find(function(s) { return s.fred === seriesName; });
-    if (!seriesInfo) return { actual: [], forecast: [], bayesian: null, seriesInfo: null };
+        // Actual value lookup: ts → value
+        const actualMap = new Map(spag.actualPts.map(p => [p.ts, p.value]));
 
-    const actual = [];
-    for (const row of state.actualData) {
-        const value = row[seriesName];
-        if (value !== null && value !== undefined && !isNaN(value)) {
-            actual.push({ date: row.date, dateKey: row.dateKey, value: value });
-        }
-    }
-
-    const forecast = [];
-    for (const row of state.forecastData) {
-        const value = row[seriesName];
-        if (value !== null && value !== undefined && !isNaN(value)) {
-            forecast.push({ date: row.date, dateKey: row.dateKey, value: value });
-        }
-    }
-
-    // Bayesian: look up using the mapped column name
-    let bayesian = null;
-    if (state.bayesianData) {
-        const bKey = bayesianColKey(seriesName);
-        const median = [];
-        const p5 = [];
-        const p95 = [];
-        for (const row of state.bayesianData.median) {
-            const value = row[bKey];
-            if (value !== null && value !== undefined && !isNaN(value)) {
-                median.push({ date: row.date, dateKey: row.dateKey, value: value });
-            }
-        }
-        for (const row of state.bayesianData.p5) {
-            const value = row[bKey];
-            if (value !== null && value !== undefined && !isNaN(value)) {
-                p5.push({ date: row.date, dateKey: row.dateKey, value: value });
-            }
-        }
-        for (const row of state.bayesianData.p95) {
-            const value = row[bKey];
-            if (value !== null && value !== undefined && !isNaN(value)) {
-                p95.push({ date: row.date, dateKey: row.dateKey, value: value });
-            }
-        }
-        if (median.length > 0) {
-            bayesian = { median: median, p5: p5, p95: p95 };
-        }
-    }
-
-    return { actual: actual, forecast: forecast, bayesian: bayesian, seriesInfo: seriesInfo };
-}
-
-function calculateMetrics(actual, forecast) {
-    if (!actual || !forecast || actual.length === 0 || forecast.length === 0) return null;
-    const forecastMap = new Map();
-    for (const f of forecast) forecastMap.set(f.dateKey, f.value);
-    const pairs = [];
-    for (const a of actual) {
-        if (forecastMap.has(a.dateKey)) {
-            const fVal = forecastMap.get(a.dateKey);
-            if (a.value !== null && fVal !== null && !isNaN(a.value) && !isNaN(fVal)) {
-                pairs.push({ actual: a.value, forecast: fVal });
-            }
-        }
-    }
-    if (pairs.length === 0) return null;
-    const n = pairs.length;
-    let sumSqError = 0, sumAbsError = 0, sumAbsPctError = 0, validPctCount = 0;
-    let sumActual = 0, sumForecast = 0, sumActualSq = 0, sumForecastSq = 0, sumProduct = 0;
-    for (const p of pairs) {
-        const error = p.forecast - p.actual;
-        sumSqError += error * error;
-        sumAbsError += Math.abs(error);
-        if (p.actual !== 0) { sumAbsPctError += Math.abs(error / p.actual) * 100; validPctCount++; }
-        sumActual += p.actual;
-        sumForecast += p.forecast;
-        sumActualSq += p.actual * p.actual;
-        sumForecastSq += p.forecast * p.forecast;
-        sumProduct += p.actual * p.forecast;
-    }
-    const rmse = Math.sqrt(sumSqError / n);
-    const mae = sumAbsError / n;
-    const mape = validPctCount > 0 ? sumAbsPctError / validPctCount : null;
-    let correlation = null;
-    if (n > 1) {
-        const numerator = n * sumProduct - sumActual * sumForecast;
-        const denomA = Math.sqrt(n * sumActualSq - sumActual * sumActual);
-        const denomB = Math.sqrt(n * sumForecastSq - sumForecast * sumForecast);
-        if (denomA > 0 && denomB > 0) correlation = numerator / (denomA * denomB);
-    }
-    return { rmse: rmse, mae: mae, mape: mape, correlation: correlation, n: n };
-}
-
-// ==================== Dashboard Updates ====================
-function updateDashboard() {
-    updateToggleButtons();
-    updateMetricsTable();
-    updateCharts();
-}
-
-function updateMetricsTable() {
-    const rows = [];
-    for (const seriesName of state.selectedSeries) {
-        const data = getSeriesData(seriesName);
-        if (!data.seriesInfo) continue;
-        const dfmMetrics = state.showDFM ? calculateMetrics(data.actual, data.forecast) : null;
-        const bayMetrics = (state.showBayesian && data.bayesian)
-            ? calculateMetrics(data.actual, data.bayesian.median)
-            : null;
-        rows.push({
-            series: seriesName,
-            group: CONFIG.groups[data.seriesInfo.group],
-            groupId: data.seriesInfo.group,
-            dfm: dfmMetrics,
-            bay: bayMetrics
+        // Filter origins by frequency
+        const origins = (spag.data.origins || []).filter(o => {
+            if (spag.originFreq <= 1) return true;
+            const year = parseInt(o.origin_date.slice(0, 4), 10);
+            return !isNaN(year) && year % spag.originFreq === 0;
         });
-    }
 
-    if (state.sortColumn) {
-        rows.sort(function(a, b) {
-            // Sort key supports both dfm.rmse and bay.rmse style keys
-            let aVal, bVal;
-            if (state.sortColumn === 'series') { aVal = a.series; bVal = b.series; }
-            else if (state.sortColumn === 'group') { aVal = a.group; bVal = b.group; }
-            else if (state.sortColumn.startsWith('dfm_')) {
-                const k = state.sortColumn.replace('dfm_', '');
-                aVal = a.dfm ? a.dfm[k] : null;
-                bVal = b.dfm ? b.dfm[k] : null;
-            } else if (state.sortColumn.startsWith('bay_')) {
-                const k = state.sortColumn.replace('bay_', '');
-                aVal = a.bay ? a.bay[k] : null;
-                bVal = b.bay ? b.bay[k] : null;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(ca.left, ca.top, ca.width, ca.height);
+        ctx.clip();
+
+        origins.forEach((origin, oi) => {
+            const steps = origin.steps || [];
+            if (!steps.length) return;
+
+            const originTs = keyToTs(origin.origin_date);
+            const anchorY  = actualMap.get(originTs) ?? null;
+            const ox       = x.getPixelForValue(originTs);
+            const oy       = anchorY !== null ? y.getPixelForValue(anchorY) : null;
+
+            // Pick colour & dash pattern for this fan (cycles)
+            const fanColor = FAN_COLORS[oi % FAN_COLORS.length];
+            const fanDash  = FAN_DASH[oi % FAN_DASH.length];
+            // Make colour semi-transparent when many paths
+            const alpha    = spag.nLines > 20 ? 0.35 : 0.75;
+            const pathRgb  = hexToRgb(fanColor);
+            const pathClr  = pathRgb
+                ? 'rgba(' + pathRgb + ',' + alpha + ')'
+                : fanColor;
+
+            // ── CI band: p5 and p95 as dashed lines, no fill ─────────
+            if (spag.showCI) {
+                const valid = steps.filter(s => s.p5 !== null && s.p95 !== null);
+                if (valid.length) {
+                    ['p95', 'p5'].forEach(key => {
+                        ctx.beginPath();
+                        let started = false;
+                        if (oy !== null) { ctx.moveTo(ox, oy); started = true; }
+                        valid.forEach(s => {
+                            const px = x.getPixelForValue(keyToTs(s.forecast_date));
+                            const py = y.getPixelForValue(s[key]);
+                            started ? ctx.lineTo(px, py) : (ctx.moveTo(px, py), started = true);
+                        });
+                        ctx.strokeStyle = pathRgb
+                            ? 'rgba(' + pathRgb + ',0.5)'
+                            : fanColor;
+                        ctx.lineWidth = 1;
+                        ctx.setLineDash([3, 5]);
+                        ctx.stroke();
+                        ctx.setLineDash([]);
+                    });
+                }
             }
-            if (typeof aVal === 'string') { aVal = aVal.toLowerCase(); bVal = (bVal || '').toLowerCase(); }
-            if (aVal === null || aVal === undefined) return 1;
-            if (bVal === null || bVal === undefined) return -1;
-            if (state.sortDirection === 'asc') return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
-            else return aVal < bVal ? 1 : aVal > bVal ? -1 : 0;
+
+            // ── Spaghetti paths ───────────────────────────────────────
+            const nDraw = spag.nLines;
+            if (nDraw > 0 && steps[0] && steps[0].draws && steps[0].draws.length) {
+                const n = Math.min(nDraw, steps[0].draws.length);
+                for (let d = 0; d < n; d++) {
+                    ctx.beginPath();
+                    let started = false;
+                    if (oy !== null) { ctx.moveTo(ox, oy); started = true; }
+                    steps.forEach(s => {
+                        const val = s.draws[d];
+                        if (val === null || val === undefined) return;
+                        const px = x.getPixelForValue(keyToTs(s.forecast_date));
+                        const py = y.getPixelForValue(val);
+                        started ? ctx.lineTo(px, py) : (ctx.moveTo(px, py), started = true);
+                    });
+                    ctx.strokeStyle = pathClr;
+                    ctx.lineWidth   = nDraw <= 5 ? 1.5 : nDraw <= 20 ? 1.1 : 0.8;
+                    ctx.setLineDash(fanDash);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                }
+            }
+
+            // ── Gray origin dot (like reference chart) ────────────────
+            if (oy !== null) {
+                ctx.beginPath();
+                ctx.arc(ox, oy, 4.5, 0, Math.PI * 2);
+                ctx.fillStyle   = dark ? '#94a3b8' : '#6b7280';
+                ctx.strokeStyle = dotBdr;
+                ctx.lineWidth   = 1.5;
+                ctx.fill();
+                ctx.stroke();
+            }
+
+            // ── Realized terminal dot ─────────────────────────────────
+            if (spag.showReal) {
+                steps.forEach(s => {
+                    if (s.realized === null || s.realized === undefined) return;
+                    const px = x.getPixelForValue(keyToTs(s.forecast_date));
+                    const py = y.getPixelForValue(s.realized);
+                    ctx.beginPath();
+                    ctx.arc(px, py, 3, 0, Math.PI * 2);
+                    ctx.fillStyle   = fanColor;
+                    ctx.strokeStyle = dotBdr;
+                    ctx.lineWidth   = 1;
+                    ctx.fill();
+                    ctx.stroke();
+                });
+            }
         });
-    }
 
-    elements.metricsBody.innerHTML = '';
-
-    if (rows.length === 0) {
-        elements.metricsBody.innerHTML =
-            '<tr><td colspan="8" style="text-align: center; padding: 2rem; color: var(--text-secondary);">Select series to view metrics</td></tr>';
-        return;
+        ctx.restore();
     }
+};
 
-    for (const row of rows) {
-        const tr = document.createElement('tr');
-        const fmt = function(v, decimals) { return v !== null && v !== undefined ? v.toFixed(decimals) : 'N/A'; };
-        tr.innerHTML =
-            '<td><strong>' + row.series + '</strong></td>' +
-            '<td>' + row.group + '</td>' +
-            // DFM columns
-            '<td style="border-left: 2px solid ' + CONFIG.forecastColor + '22;">' + (row.dfm ? fmt(row.dfm.rmse, 4) : '—') + '</td>' +
-            '<td>' + (row.dfm ? fmt(row.dfm.mape, 2) + '%' : '—') + '</td>' +
-            '<td>' + (row.dfm ? fmt(row.dfm.correlation, 4) : '—') + '</td>' +
-            // Bayesian columns
-            '<td style="border-left: 2px solid ' + CONFIG.bayesianColor + '44;">' + (row.bay ? fmt(row.bay.rmse, 4) : '—') + '</td>' +
-            '<td>' + (row.bay ? fmt(row.bay.mape, 2) + '%' : '—') + '</td>' +
-            '<td>' + (row.bay ? fmt(row.bay.correlation, 4) : '—') + '</td>';
-        elements.metricsBody.appendChild(tr);
-    }
+// Helper: '#2563eb' → '37,99,235'
+function hexToRgb(hex) {
+    const r = /^#([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return r ? parseInt(r[1],16)+','+parseInt(r[2],16)+','+parseInt(r[3],16) : null;
 }
 
-function updateCharts() {
-    for (const chartId of Object.keys(chartInstances)) {
-        chartInstances[chartId].destroy();
-    }
-    chartInstances = {};
-    elements.chartsContainer.innerHTML = '';
+Chart.register(SpaghettiPlugin);
 
-    if (state.selectedSeries.size === 0) {
-        elements.chartsContainer.innerHTML =
-            '<div class="empty-state"><h3>No Series Selected</h3><p>Select groups and series from the sidebar to view charts</p></div>';
-        return;
-    }
+// ── Rebuild the Chart.js instance ────────────────────────────────────────
+function spagRebuildChart() {
+    if (!spag.data || !spag.actualPts) return;
 
-    for (const seriesName of state.selectedSeries) {
-        createChart(seriesName);
-    }
-}
+    const canvas = document.getElementById('spag-canvas');
+    if (spag.chart) { spag.chart.destroy(); spag.chart = null; }
 
-function createChart(seriesName) {
-    const data = getSeriesData(seriesName);
-    if (!data.seriesInfo) return;
-    if (data.actual.length === 0 && data.forecast.length === 0 && !data.bayesian) return;
+    const dark    = document.body.classList.contains('dark-theme');
+    const grid    = dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)';
+    const tickClr = dark ? '#94a3b8' : '#64748b';
 
-    // Determine history window start
-    let forecastStart = null;
-    const allForecasts = [
-        ...(state.showDFM ? data.forecast : []),
-        ...(state.showBayesian && data.bayesian ? data.bayesian.median : [])
-    ];
-    if (allForecasts.length > 0) {
-        const times = allForecasts.map(function(f) { return f.date.getTime(); });
-        forecastStart = new Date(Math.min.apply(null, times));
-    }
+    // Time extent: actual data + furthest forecast date
+    const actualTs = spag.actualPts.map(p => p.ts);
+    const fcTs = (spag.data.origins || [])
+        .flatMap(o => o.steps.map(s => keyToTs(s.forecast_date)));
 
-    let historyStart;
-    if (forecastStart) {
-        historyStart = new Date(forecastStart);
-        historyStart.setMonth(historyStart.getMonth() - CONFIG.historyMonths);
-    } else {
-        const actualTimes = data.actual.map(function(a) { return a.date.getTime(); });
-        historyStart = new Date(Math.min.apply(null, actualTimes));
-    }
+    spag.tsMin = actualTs.length ? Math.min(...actualTs) : Date.now() - 2e12;
+    spag.tsMax = fcTs.length     ? Math.max(...fcTs)     : Date.now();
 
-    const actualFiltered = data.actual.filter(function(a) { return a.date >= historyStart; });
+    const span    = spag.tsMax - spag.tsMin;
+    const viewMin = spag.tsMin + span * (spag.viewLo / 1000);
+    const viewMax = spag.tsMin + span * (spag.viewHi / 1000);
 
-    // Build unified date axis
-    const allDateKeys = new Set();
-    actualFiltered.forEach(function(a) { allDateKeys.add(a.dateKey); });
-    if (state.showDFM) data.forecast.forEach(function(f) { allDateKeys.add(f.dateKey); });
-    if (state.showBayesian && data.bayesian) {
-        data.bayesian.median.forEach(function(f) { allDateKeys.add(f.dateKey); });
-    }
-    const sortedDateKeys = Array.from(allDateKeys).sort();
+    // Actual dataset (x: timestamp, y: value)
+    const actData  = spag.actualPts.map(p => ({ x: p.ts, y: p.value }));
+    const haloClr  = document.body.classList.contains('dark-theme')
+        ? 'rgba(15,23,42,0.65)' : 'rgba(255,255,255,0.70)';
 
-    // Build value arrays
-    const actualMap = new Map(actualFiltered.map(function(a) { return [a.dateKey, a.value]; }));
-    const forecastMap = new Map(data.forecast.map(function(f) { return [f.dateKey, f.value]; }));
-
-    const actualValues = sortedDateKeys.map(function(k) { return actualMap.has(k) ? actualMap.get(k) : null; });
-    const forecastValues = sortedDateKeys.map(function(k) { return forecastMap.has(k) ? forecastMap.get(k) : null; });
-
-    let bayMedianValues = [], bayP5Values = [], bayP95Values = [];
-    if (data.bayesian) {
-        const bayMedianMap = new Map(data.bayesian.median.map(function(f) { return [f.dateKey, f.value]; }));
-        const bayP5Map = new Map(data.bayesian.p5.map(function(f) { return [f.dateKey, f.value]; }));
-        const bayP95Map = new Map(data.bayesian.p95.map(function(f) { return [f.dateKey, f.value]; }));
-        bayMedianValues = sortedDateKeys.map(function(k) { return bayMedianMap.has(k) ? bayMedianMap.get(k) : null; });
-        bayP5Values = sortedDateKeys.map(function(k) { return bayP5Map.has(k) ? bayP5Map.get(k) : null; });
-        bayP95Values = sortedDateKeys.map(function(k) { return bayP95Map.has(k) ? bayP95Map.get(k) : null; });
-    }
-
-    const labels = sortedDateKeys.map(function(key) {
-        const parts = key.split('-');
-        return parts[1] + '/' + parts[0];
-    });
-
-    // Metrics for chart header
-    const dfmMetrics = state.showDFM ? calculateMetrics(data.actual, data.forecast) : null;
-    const bayMetrics = (state.showBayesian && data.bayesian)
-        ? calculateMetrics(data.actual, data.bayesian.median)
-        : null;
-
-    // Build card HTML
-    const chartId = 'chart-' + seriesName.replace(/[^a-zA-Z0-9]/g, '_');
-
-    let metricsHtml = '<span>Horizon: ' + getHorizonLabel(state.selectedHorizon) + '</span>';
-    if (dfmMetrics) {
-        metricsHtml +=
-            '<span style="color:' + CONFIG.forecastColor + '">DFM RMSE: ' + dfmMetrics.rmse.toFixed(2) + '</span>' +
-            '<span style="color:' + CONFIG.forecastColor + '">MAPE: ' + (dfmMetrics.mape !== null ? dfmMetrics.mape.toFixed(1) + '%' : 'N/A') + '</span>';
-    }
-    if (bayMetrics) {
-        metricsHtml +=
-            '<span style="color:' + CONFIG.bayesianColor + '">Bayes RMSE: ' + bayMetrics.rmse.toFixed(2) + '</span>' +
-            '<span style="color:' + CONFIG.bayesianColor + '">MAPE: ' + (bayMetrics.mape !== null ? bayMetrics.mape.toFixed(1) + '%' : 'N/A') + '</span>';
-    }
-
-    // Build legend items
-    let legendHtml =
-        '<div class="legend-item"><div class="legend-line actual"></div><span>Actual</span></div>';
-    if (state.showDFM) {
-        legendHtml +=
-            '<div class="legend-item"><div class="legend-line forecast"></div><span>DFM Forecast</span></div>';
-    }
-    if (state.showBayesian && data.bayesian) {
-        legendHtml +=
-            '<div class="legend-item"><div class="legend-line bayesian"></div><span>Bayesian Forecast</span></div>';
-        if (state.showCI) {
-            legendHtml +=
-                '<div class="legend-item"><div class="legend-ci-band"></div><span>90% CI</span></div>';
-        }
-    }
-
-    const card = document.createElement('div');
-    card.className = 'chart-card';
-    card.innerHTML =
-        '<div class="chart-header">' +
-            '<h3>' + seriesName + ' <span style="font-weight: normal; color: var(--text-secondary); font-size: 0.85rem;">— ' + (data.seriesInfo.description || '') + '</span></h3>' +
-            '<div class="chart-metrics">' + metricsHtml + '</div>' +
-        '</div>' +
-        '<div class="chart-wrapper">' +
-            '<canvas id="' + chartId + '"></canvas>' +
-        '</div>' +
-        '<div class="chart-legend">' + legendHtml + '</div>' +
-        '<div class="chart-controls">' +
-            '<button onclick="resetZoom(\'' + chartId + '\')">Reset Zoom</button>' +
-        '</div>';
-
-    elements.chartsContainer.appendChild(card);
-
-    // Build Chart.js datasets
-    const isDark = document.body.classList.contains('dark-theme');
-    const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
-    const textColor = isDark ? '#e9ecef' : '#212529';
-
-    const datasets = [
-        {
-            label: 'Actual',
-            data: actualValues,
-            borderColor: CONFIG.actualColor,
-            backgroundColor: CONFIG.actualColor,
-            borderWidth: 2,
-            pointRadius: 2,
-            pointHoverRadius: 5,
-            tension: 0.1,
-            spanGaps: true,
-            order: 1
-        }
-    ];
-
-    if (state.showDFM) {
-        datasets.push({
-            label: 'DFM Forecast',
-            data: forecastValues,
-            borderColor: CONFIG.forecastColor,
-            backgroundColor: CONFIG.forecastColor,
-            borderWidth: 2,
-            borderDash: [5, 5],
-            pointRadius: 2,
-            pointHoverRadius: 5,
-            tension: 0.1,
-            spanGaps: true,
-            order: 2
-        });
-    }
-
-    if (state.showBayesian && data.bayesian) {
-        // CI upper band (p95) — drawn first so it's behind
-        if (state.showCI) {
-            datasets.push({
-                label: 'CI Upper (P95)',
-                data: bayP95Values,
-                borderColor: 'transparent',
-                backgroundColor: CONFIG.ciColor,
-                borderWidth: 0,
-                pointRadius: 0,
-                fill: '+1',   // fill down to next dataset (p5)
-                tension: 0.1,
-                spanGaps: true,
-                order: 5
-            });
-            datasets.push({
-                label: 'CI Lower (P5)',
-                data: bayP5Values,
-                borderColor: 'transparent',
-                backgroundColor: CONFIG.ciColor,
-                borderWidth: 0,
-                pointRadius: 0,
-                fill: false,
-                tension: 0.1,
-                spanGaps: true,
-                order: 5
-            });
-        }
-        // Median line on top
-        datasets.push({
-            label: 'Bayesian Forecast',
-            data: bayMedianValues,
-            borderColor: CONFIG.bayesianColor,
-            backgroundColor: CONFIG.bayesianColor,
-            borderWidth: 2,
-            borderDash: [4, 3],
-            pointRadius: 2,
-            pointHoverRadius: 5,
-            tension: 0.1,
-            spanGaps: true,
-            order: 3
-        });
-    }
-
-    const ctx = document.getElementById(chartId).getContext('2d');
-    chartInstances[chartId] = new Chart(ctx, {
+    const ctx = canvas.getContext('2d');
+    spag.chart = new Chart(ctx, {
         type: 'line',
-        data: { labels: labels, datasets: datasets },
+        data: {
+            datasets: [
+                // Halo: thick background stroke so actual line pops over dense fans
+                { label: '_halo', data: actData, borderColor: haloClr,
+                  backgroundColor: 'transparent', borderWidth: 10,
+                  pointRadius: 0, tension: 0.1, spanGaps: true, order: 2 },
+                // Actual line: bold black, on top of all fans
+                { label: 'Actual', data: actData,
+                  borderColor: dark ? '#f1f5f9' : '#111827',
+                  backgroundColor: 'transparent',
+                  borderWidth: 2.5, pointRadius: 0, pointHoverRadius: 5,
+                  tension: 0.1, spanGaps: true, order: 0 }
+            ]
+        },
         options: {
-            responsive: true,
+            animation: false,
+            responsive:          true,
             maintainAspectRatio: false,
+            parsing: false,
             interaction: { intersect: false, mode: 'index' },
             plugins: {
                 legend: { display: false },
                 tooltip: {
                     callbacks: {
-                        label: function(context) {
-                            const value = context.parsed.y;
-                            if (value === null) return null;
-                            const label = context.dataset.label;
-                            if (label === 'CI Upper (P95)' || label === 'CI Lower (P5)') return null;
-                            return label + ': ' + value.toFixed(4);
+                        title: ctx => ctx.length ? keyToLabel(
+                            new Date(ctx[0].parsed.x).toISOString().slice(0, 7)) : '',
+                        label: ctx => {
+                            if (ctx.dataset.label === '_halo') return null;
+                            return ctx.dataset.label === 'Actual' && ctx.parsed.y !== null
+                                ? 'Actual: ' + ctx.parsed.y.toFixed(4) : null;
                         }
                     }
                 },
                 zoom: {
-                    pan: { enabled: true, mode: 'x' },
-                    zoom: {
-                        wheel: { enabled: true },
-                        pinch: { enabled: true },
-                        mode: 'x'
-                    }
-                }
+                    pan:  { enabled: true, mode: 'x' },
+                    zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' }
+                },
+                spaghettiRenderer: {}
             },
             scales: {
                 x: {
-                    grid: { color: gridColor },
-                    ticks: { color: textColor, maxRotation: 45, minRotation: 0, autoSkip: true, maxTicksLimit: 12 }
+                    type: 'linear', min: viewMin, max: viewMax,
+                    grid:  { color: grid },
+                    ticks: { color: tickClr, maxTicksLimit: 12,
+                             callback: v => keyToLabel(new Date(v).toISOString().slice(0, 7)) }
                 },
-                y: {
-                    grid: { color: gridColor },
-                    ticks: { color: textColor }
-                }
+                y: { grid: { color: grid }, ticks: { color: tickClr } }
+            }
+        }
+    });
+
+    spagUpdateRangeSlider();
+    spagUpdateStatInfo();
+}
+
+function spagUpdateView() {
+    if (!spag.chart) return;
+    const span    = spag.tsMax - spag.tsMin;
+    const viewMin = spag.tsMin + span * (spag.viewLo / 1000);
+    const viewMax = spag.tsMin + span * (spag.viewHi / 1000);
+    spag.chart.options.scales.x.min = viewMin;
+    spag.chart.options.scales.x.max = viewMax;
+    spag.chart.update('none');
+    const lo = document.getElementById('range-lo-label');
+    const hi = document.getElementById('range-hi-label');
+    lo.textContent = keyToLabel(new Date(viewMin).toISOString().slice(0, 7));
+    hi.textContent = keyToLabel(new Date(viewMax).toISOString().slice(0, 7));
+}
+
+function spagUpdateRangeSlider() {
+    document.getElementById('range-wrap').style.display = 'block';
+    spagSyncFill();
+    const span = spag.tsMax - spag.tsMin;
+    const lo   = document.getElementById('range-lo-label');
+    const hi   = document.getElementById('range-hi-label');
+    lo.textContent = keyToLabel(new Date(spag.tsMin + span * spag.viewLo / 1000).toISOString().slice(0,7));
+    hi.textContent = keyToLabel(new Date(spag.tsMin + span * spag.viewHi / 1000).toISOString().slice(0,7));
+}
+
+function spagSyncFill() {
+    const fill = document.getElementById('range-fill');
+    fill.style.left  = (spag.viewLo / 10) + '%';
+    fill.style.width = ((spag.viewHi - spag.viewLo) / 10) + '%';
+}
+
+function spagUpdateStatInfo() {
+    const el      = document.getElementById('spag-stat-info');
+    const origins = spag.data?.origins || [];
+    const visible = spag.originFreq <= 1
+        ? origins
+        : origins.filter(o => parseInt(o.origin_date.slice(0,4),10) % spag.originFreq === 0);
+    el.textContent = `${visible.length} origins · ${spag.nLines} paths · h=${spag.horizon}m`;
+}
+
+// ── Main render ────────────────────────────────────────────────────────────
+async function spagRender(variable, horizon) {
+    if (!variable) return;
+
+    const empty    = document.getElementById('spag-empty');
+    const loading  = document.getElementById('spag-loading');
+    const loadMsg  = document.getElementById('spag-loading-msg');
+    const canvas   = document.getElementById('spag-canvas');
+    const legend   = document.getElementById('spag-legend');
+    const rangeWrap= document.getElementById('range-wrap');
+
+    empty.style.display   = 'none';
+    loading.style.display = 'flex';
+    canvas.style.display  = 'none';
+    legend.style.display  = 'none';
+    rangeWrap.style.display = 'none';
+
+    try {
+        loadMsg.textContent = 'Loading actual data…';
+        const actualRows = await apiFetch(`/api/actual/${encodeURIComponent(variable)}`);
+        // actualRows: [{date_key: "YYYY-MM", value: number}]
+        spag.actualPts = actualRows.map(r => ({ ts: keyToTs(r.date_key), value: r.value }));
+
+        loadMsg.textContent = 'Loading backtest draws…';
+        const cacheKey = `${variable}_h${horizon}`;
+        let data = spag.cache.get(cacheKey);
+        if (!data) {
+            const freq = spag.originFreq;
+            data = await apiFetch(
+                `/api/spaghetti/${encodeURIComponent(variable)}/${horizon}?freq=${freq}`
+            );
+            spag.cache.set(cacheKey, data);
+        }
+
+        spag.variable  = variable;
+        spag.horizon   = horizon;
+        spag.data      = data;
+        spag.viewLo    = 0;
+        spag.viewHi    = 1000;
+        document.getElementById('range-lo').value = 0;
+        document.getElementById('range-hi').value = 1000;
+
+        canvas.style.display = 'block';
+        spagRebuildChart();
+        legend.style.display = 'flex';
+
+    } catch (e) {
+        console.error('Spaghetti load failed:', e);
+        empty.querySelector('h3').textContent = 'Failed to load data';
+        empty.querySelector('p').textContent  = e.message;
+        empty.style.display = 'flex';
+    } finally {
+        loading.style.display = 'none';
+    }
+}
+
+// ── Control wiring ─────────────────────────────────────────────────────────
+function spagSetupControls() {
+    // Variable selector
+    document.getElementById('spag-var').addEventListener('change', e => {
+        spag.variable = e.target.value || null;
+        if (spag.variable) spagRender(spag.variable, spag.horizon);
+    });
+
+    // Horizon pills
+    document.querySelectorAll('.h-pill').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.h-pill').forEach(b => b.classList.toggle('active', b === btn));
+            spag.horizon = parseInt(btn.dataset.h);
+            if (spag.variable) spagRender(spag.variable, spag.horizon);
+        });
+    });
+
+    // Origin frequency
+    document.querySelectorAll('.seg-btn[data-freq]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.seg-btn[data-freq]')
+                    .forEach(b => b.classList.toggle('active', b === btn));
+            spag.originFreq = parseInt(btn.dataset.freq);
+            spag.cache.clear();  // invalidate cache — server filters by freq
+            if (spag.variable) spagRender(spag.variable, spag.horizon);
+        });
+    });
+
+    // Density slider
+    document.getElementById('spag-density').addEventListener('input', e => {
+        spag.nLines = parseInt(e.target.value);
+        document.getElementById('density-val').textContent = spag.nLines;
+        if (spag.chart) spag.chart.update('none');
+    });
+
+    // CI toggle
+    document.getElementById('ci-toggle').addEventListener('click', function() {
+        spag.showCI = !spag.showCI;
+        this.classList.toggle('active', spag.showCI);
+        this.textContent = spag.showCI ? 'On' : 'Off';
+        if (spag.chart) spag.chart.update('none');
+    });
+
+    // Realized toggle
+    document.getElementById('realized-toggle').addEventListener('click', function() {
+        spag.showReal = !spag.showReal;
+        this.classList.toggle('active', spag.showReal);
+        this.textContent = spag.showReal ? 'On' : 'Off';
+        if (spag.chart) spag.chart.update('none');
+    });
+
+    // Dual range slider
+    const lo = document.getElementById('range-lo');
+    const hi = document.getElementById('range-hi');
+    function onRange() {
+        let lv = parseInt(lo.value), hv = parseInt(hi.value);
+        if (lv >= hv - 20) {
+            if (document.activeElement === lo) lv = hv - 20;
+            else                               hv = lv + 20;
+            lo.value = lv; hi.value = hv;
+        }
+        spag.viewLo = lv; spag.viewHi = hv;
+        spagSyncFill();
+        spagUpdateView();
+    }
+    lo.addEventListener('input', onRange);
+    hi.addEventListener('input', onRange);
+}
+
+// ── Populate variable selector from API ───────────────────────────────────
+async function spagInitVarSelector() {
+    const sel = document.getElementById('spag-var');
+    try {
+        const vars = await ensureVarList();
+        sel.innerHTML = '<option value="">— select —</option>';
+
+        // Group variables
+        const byGroup = {};
+        vars.forEach(v => {
+            const g = v.group_id;
+            (byGroup[g] = byGroup[g] || []).push(v);
+        });
+
+        Object.keys(byGroup).sort((a,b) => +a - +b).forEach(gid => {
+            const og = document.createElement('optgroup');
+            og.label = byGroup[gid][0].group_name;
+            byGroup[gid].sort((a,b) => a.name.localeCompare(b.name)).forEach(v => {
+                const opt = document.createElement('option');
+                opt.value = v.name; opt.textContent = v.name;
+                og.appendChild(opt);
+            });
+            sel.appendChild(og);
+        });
+    } catch (e) {
+        sel.innerHTML = '<option value="">API unavailable</option>';
+        console.error('Failed to load variable list:', e);
+    }
+}
+
+// ============================================================
+//  ████  FORECAST MODULE  ████
+// ============================================================
+const fxState = {
+    initialized: false,
+    varList:     [],    // from API
+    selectedHorizon: 12,
+    selectedGroups:  new Set(),
+    selectedSeries:  new Set(),
+    sortColumn:      null,
+    sortDirection:   'asc',
+    showDFM:      true,
+    showBayesian: true,
+    showCI:       true,
+    // per-series caches
+    actualCache:  new Map(),   // variable → [{date_key, value}]
+    fcCache:      new Map()    // `${variable}_h${h}` → {dfm, bay_med, bay_p5, bay_p95}
+};
+
+let fxCharts = {};
+
+function fxShowLoading() { document.getElementById('loading').classList.add('active'); }
+function fxHideLoading() { document.getElementById('loading').classList.remove('active'); }
+
+async function fxGetActual(variable) {
+    if (fxState.actualCache.has(variable)) return fxState.actualCache.get(variable);
+    const rows = await apiFetch(`/api/actual/${encodeURIComponent(variable)}`);
+    // rows: [{date_key: "YYYY-MM", value}]
+    fxState.actualCache.set(variable, rows);
+    return rows;
+}
+
+async function fxGetForecast(variable, horizon) {
+    const key = `${variable}_h${horizon}`;
+    if (fxState.fcCache.has(key)) return fxState.fcCache.get(key);
+    try {
+        const data = await apiFetch(`/api/forecast/${encodeURIComponent(variable)}/${horizon}`);
+        fxState.fcCache.set(key, data);
+        return data;
+    } catch {
+        return { dfm: [], bay_med: [], bay_p5: [], bay_p95: [] };
+    }
+}
+
+function fxCalcMetrics(actual, forecast) {
+    // actual/forecast: [{date_key, value}]
+    if (!actual?.length || !forecast?.length) return null;
+    const fmap = new Map(forecast.map(f => [f.date_key, f.value]));
+    const pairs = actual
+        .filter(a => fmap.has(a.date_key) && a.value !== null && fmap.get(a.date_key) !== null)
+        .map(a => ({ a: a.value, f: fmap.get(a.date_key) }));
+    if (!pairs.length) return null;
+    const n = pairs.length;
+    let ss=0, sap=0, vpc=0, sa=0, sf=0, sa2=0, sf2=0, sp=0;
+    pairs.forEach(({a, f}) => {
+        const e = f - a;
+        ss  += e * e;
+        if (a !== 0) { sap += Math.abs(e / a) * 100; vpc++; }
+        sa  += a; sf += f; sa2 += a*a; sf2 += f*f; sp += a*f;
+    });
+    let corr = null;
+    if (n > 1) {
+        const num = n*sp - sa*sf;
+        const da  = Math.sqrt(n*sa2 - sa*sa);
+        const db  = Math.sqrt(n*sf2 - sf*sf);
+        if (da > 0 && db > 0) corr = num / (da * db);
+    }
+    return { rmse: Math.sqrt(ss/n), mape: vpc ? sap/vpc : null, correlation: corr, n };
+}
+
+function fxUpdateToggleBtn(btn, active, color) {
+    if (!btn) return;
+    btn.classList.toggle('toggle-active', active);
+    btn.style.borderColor     = active ? color : 'var(--border-color)';
+    btn.style.color           = active ? color : 'var(--text-secondary)';
+    btn.style.backgroundColor = active ? color + '18' : 'var(--bg-tertiary)';
+}
+
+function fxUpdateToggleButtons() {
+    fxUpdateToggleBtn(document.getElementById('toggle-dfm'),      fxState.showDFM,      CONFIG.forecastColor);
+    fxUpdateToggleBtn(document.getElementById('toggle-bayesian'), fxState.showBayesian, CONFIG.bayesianColor);
+    const ci = document.getElementById('toggle-ci');
+    if (ci) { ci.classList.toggle('toggle-active', fxState.showCI); ci.style.opacity = fxState.showBayesian ? '1' : '0.4'; ci.disabled = !fxState.showBayesian; }
+}
+
+function fxRenderGroupCheckboxes() {
+    const el = document.getElementById('group-checkboxes');
+    el.innerHTML = '';
+    const groups = {};
+    fxState.varList.forEach(v => { (groups[v.group_id] = groups[v.group_id] || {name: v.group_name, count: 0}).count++; });
+    Object.keys(groups).sort((a,b) => +a - +b).forEach(id => {
+        const g = groups[id];
+        const div = document.createElement('div'); div.className = 'checkbox-item';
+        div.innerHTML = `<input type="checkbox" id="group-${id}" value="${id}">
+            <label for="group-${id}">${id}. ${g.name}</label>
+            <span class="group-badge">${g.count}</span>`;
+        div.querySelector('input').addEventListener('change', e => fxHandleGroupChange(parseInt(id), e.target.checked));
+        el.appendChild(div);
+    });
+}
+
+function fxRenderSeriesCheckboxes() {
+    const el     = document.getElementById('series-checkboxes');
+    const search = document.getElementById('series-search').value.toLowerCase();
+    el.innerHTML = '';
+
+    let all = fxState.varList.filter(v => v.name.toLowerCase().includes(search));
+    if (!all.length) { el.innerHTML = '<div class="empty-state"><p>No series found</p></div>'; return; }
+
+    const inGrp  = all.filter(v =>  fxState.selectedGroups.has(v.group_id));
+    const outGrp = all.filter(v => !fxState.selectedGroups.has(v.group_id));
+
+    const byGroup = {};
+    inGrp.forEach(v => { (byGroup[v.group_id] = byGroup[v.group_id] || []).push(v); });
+
+    Object.keys(byGroup).sort((a,b) => +a - +b).forEach(gid => {
+        const hdr = document.createElement('div');
+        hdr.style.cssText = 'padding:.5rem;margin-top:.5rem;font-size:.8rem;color:var(--accent-color);background:var(--bg-tertiary);border-radius:4px;';
+        hdr.innerHTML = `<strong>${byGroup[gid][0].group_name}</strong>`;
+        el.appendChild(hdr);
+        byGroup[gid].sort((a,b) => a.name.localeCompare(b.name)).forEach(v => fxRenderSeriesRow(v, true));
+    });
+
+    if (outGrp.length && fxState.selectedGroups.size > 0) {
+        const hdr = document.createElement('div');
+        hdr.style.cssText = 'padding:.5rem;margin-top:.5rem;font-size:.8rem;color:var(--text-secondary);';
+        hdr.innerHTML = '<strong>Other Series</strong>';
+        el.appendChild(hdr);
+    }
+    outGrp.sort((a,b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()))
+          .forEach(v => fxRenderSeriesRow(v, false));
+}
+
+function fxRenderSeriesRow(v, highlight) {
+    const el  = document.getElementById('series-checkboxes');
+    const div = document.createElement('div');
+    div.className = 'checkbox-item' + (highlight ? ' in-selected-group' : '');
+    const sid = v.name.replace(/[^a-zA-Z0-9]/g, '_');
+    const chk = fxState.selectedSeries.has(v.name) ? 'checked' : '';
+    div.innerHTML = `<input type="checkbox" id="series-${sid}" value="${v.name}" ${chk}>
+        <label for="series-${sid}">${v.name}</label>
+        <span class="group-badge">${v.group_id}</span>`;
+    div.querySelector('input').addEventListener('change', e => fxHandleSeriesChange(v.name, e.target.checked));
+    el.appendChild(div);
+}
+
+function fxHandleGroupChange(id, checked) {
+    if (checked) fxState.selectedGroups.add(id);
+    else {
+        fxState.selectedGroups.delete(id);
+        fxState.varList.filter(v => v.group_id === id).forEach(v => fxState.selectedSeries.delete(v.name));
+    }
+    fxRenderSeriesCheckboxes();
+    document.getElementById('selected-count').textContent = fxState.selectedSeries.size + ' series selected';
+    fxUpdate();
+}
+
+function fxHandleSeriesChange(name, checked) {
+    checked ? fxState.selectedSeries.add(name) : fxState.selectedSeries.delete(name);
+    document.getElementById('selected-count').textContent = fxState.selectedSeries.size + ' series selected';
+    fxUpdate();
+}
+
+function fxUpdate() {
+    fxUpdateToggleButtons();
+    fxUpdateMetricsTable();
+    fxUpdateCharts();
+}
+
+async function fxUpdateMetricsTable() {
+    const body = document.getElementById('metrics-body');
+    if (!fxState.selectedSeries.size) {
+        body.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--text-secondary)">Select series to view metrics</td></tr>';
+        return;
+    }
+
+    const rows = [];
+    await Promise.all(Array.from(fxState.selectedSeries).map(async name => {
+        const [actual, fc] = await Promise.all([
+            fxGetActual(name),
+            fxGetForecast(name, fxState.selectedHorizon)
+        ]);
+        const info = fxState.varList.find(v => v.name === name);
+        rows.push({
+            name,
+            group: info?.group_name || '',
+            groupId: info?.group_id || 1,
+            dfm: fxState.showDFM ? fxCalcMetrics(actual, fc.dfm) : null,
+            bay: (fxState.showBayesian && fc.bay_med?.length) ? fxCalcMetrics(actual, fc.bay_med) : null
+        });
+    }));
+
+    if (fxState.sortColumn) {
+        rows.sort((a, b) => {
+            let av, bv;
+            if      (fxState.sortColumn === 'series') { av = a.name;  bv = b.name; }
+            else if (fxState.sortColumn === 'group')  { av = a.group; bv = b.group; }
+            else if (fxState.sortColumn.startsWith('dfm_')) { const k = fxState.sortColumn.slice(4); av = a.dfm?.[k]; bv = b.dfm?.[k]; }
+            else if (fxState.sortColumn.startsWith('bay_')) { const k = fxState.sortColumn.slice(4); av = a.bay?.[k]; bv = b.bay?.[k]; }
+            if (typeof av === 'string') { av = av.toLowerCase(); bv = (bv||'').toLowerCase(); }
+            if (av == null) return 1; if (bv == null) return -1;
+            return (fxState.sortDirection === 'asc') ? (av > bv ? 1 : av < bv ? -1 : 0) : (av < bv ? 1 : av > bv ? -1 : 0);
+        });
+    }
+
+    const fmt = (v, dp) => v !== null && v !== undefined ? v.toFixed(dp) : 'N/A';
+    body.innerHTML = '';
+    rows.forEach(row => {
+        const tr = document.createElement('tr');
+        tr.innerHTML =
+            `<td><strong>${row.name}</strong></td><td>${row.group}</td>` +
+            `<td style="border-left:2px solid ${CONFIG.forecastColor}22">${row.dfm ? fmt(row.dfm.rmse,4) : '—'}</td>` +
+            `<td>${row.dfm ? fmt(row.dfm.mape,2)+'%' : '—'}</td>` +
+            `<td>${row.dfm ? fmt(row.dfm.correlation,4) : '—'}</td>` +
+            `<td style="border-left:2px solid ${CONFIG.bayesianColor}44">${row.bay ? fmt(row.bay.rmse,4) : '—'}</td>` +
+            `<td>${row.bay ? fmt(row.bay.mape,2)+'%' : '—'}</td>` +
+            `<td>${row.bay ? fmt(row.bay.correlation,4) : '—'}</td>`;
+        body.appendChild(tr);
+    });
+}
+
+function fxUpdateCharts() {
+    Object.values(fxCharts).forEach(c => c.destroy());
+    fxCharts = {};
+    const container = document.getElementById('charts-container');
+    container.innerHTML = '';
+    if (!fxState.selectedSeries.size) {
+        container.innerHTML = '<div class="empty-state"><h3>No Series Selected</h3><p>Select groups and series from the sidebar</p></div>';
+        return;
+    }
+    fxState.selectedSeries.forEach(name => fxCreateChart(name));
+}
+
+async function fxCreateChart(name) {
+    const [actual, fc] = await Promise.all([
+        fxGetActual(name),
+        fxGetForecast(name, fxState.selectedHorizon)
+    ]);
+
+    const info = fxState.varList.find(v => v.name === name);
+
+    // Determine history window
+    const allFcKeys = [
+        ...(fxState.showDFM ? fc.dfm : []),
+        ...(fxState.showBayesian ? fc.bay_med : [])
+    ].map(r => r.date_key);
+
+    let histStart;
+    if (allFcKeys.length) {
+        const minFcKey = allFcKeys.sort()[0];
+        const [fy, fm] = minFcKey.split('-').map(Number);
+        const d = new Date(fy, fm - 1 - CONFIG.historyMonths, 1);
+        histStart = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    } else {
+        histStart = actual[0]?.date_key || '1959-01';
+    }
+
+    const actFiltered = actual.filter(r => r.date_key >= histStart);
+
+    // Build unified date axis
+    const allKeys = new Set([
+        ...actFiltered.map(r => r.date_key),
+        ...(fxState.showDFM ? fc.dfm.map(r => r.date_key) : []),
+        ...(fxState.showBayesian ? fc.bay_med.map(r => r.date_key) : [])
+    ]);
+    const keys = Array.from(allKeys).sort();
+
+    const amap   = new Map(actFiltered.map(r => [r.date_key, r.value]));
+    const fmap   = new Map(fc.dfm.map(r => [r.date_key, r.value]));
+    const bmmap  = new Map(fc.bay_med.map(r => [r.date_key, r.value]));
+    const bp5map = new Map(fc.bay_p5.map(r => [r.date_key, r.value]));
+    const b95map = new Map(fc.bay_p95.map(r => [r.date_key, r.value]));
+
+    const labels   = keys.map(keyToLabel);
+    const actVals  = keys.map(k => amap.get(k)   ?? null);
+    const fcVals   = keys.map(k => fmap.get(k)   ?? null);
+    const medVals  = keys.map(k => bmmap.get(k)  ?? null);
+    const p5Vals   = keys.map(k => bp5map.get(k) ?? null);
+    const p95Vals  = keys.map(k => b95map.get(k) ?? null);
+
+    const dark    = document.body.classList.contains('dark-theme');
+    const grid    = dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
+    const textCol = dark ? '#e9ecef' : '#212529';
+    const chartId = 'fxchart-' + name.replace(/[^a-zA-Z0-9]/g, '_');
+
+    const dfmM  = fxState.showDFM ? fxCalcMetrics(actual, fc.dfm) : null;
+    const bayM  = (fxState.showBayesian && fc.bay_med?.length) ? fxCalcMetrics(actual, fc.bay_med) : null;
+    const hLbl  = fxState.selectedHorizon === 1 ? '1 Month' : fxState.selectedHorizon + ' Months';
+
+    let mHtml = `<span>Horizon: ${hLbl}</span>`;
+    if (dfmM) mHtml += `<span style="color:${CONFIG.forecastColor}">DFM RMSE: ${dfmM.rmse.toFixed(2)}</span><span style="color:${CONFIG.forecastColor}">MAPE: ${dfmM.mape!=null?dfmM.mape.toFixed(1)+'%':'N/A'}</span>`;
+    if (bayM) mHtml += `<span style="color:${CONFIG.bayesianColor}">Bayes RMSE: ${bayM.rmse.toFixed(2)}</span><span style="color:${CONFIG.bayesianColor}">MAPE: ${bayM.mape!=null?bayM.mape.toFixed(1)+'%':'N/A'}</span>`;
+
+    let legHtml = '<div class="legend-item"><div class="legend-line actual"></div><span>Actual</span></div>';
+    if (fxState.showDFM) legHtml += '<div class="legend-item"><div class="legend-line forecast"></div><span>DFM Forecast</span></div>';
+    if (fxState.showBayesian && fc.bay_med?.length) {
+        legHtml += '<div class="legend-item"><div class="legend-line bayesian"></div><span>Bayesian Forecast</span></div>';
+        if (fxState.showCI) legHtml += '<div class="legend-item"><div class="legend-ci-band"></div><span>90% CI</span></div>';
+    }
+
+    const container = document.getElementById('charts-container');
+    const card = document.createElement('div'); card.className = 'chart-card';
+    card.innerHTML = `
+        <div class="chart-header">
+            <h3>${name} <span style="font-weight:normal;color:var(--text-secondary);font-size:.85rem">— ${info?.group_name||''}</span></h3>
+            <div class="chart-metrics">${mHtml}</div>
+        </div>
+        <div class="chart-wrapper"><canvas id="${chartId}"></canvas></div>
+        <div class="chart-legend">${legHtml}</div>
+        <div class="chart-controls"><button onclick="fxResetZoom('${chartId}')">Reset Zoom</button></div>`;
+    container.appendChild(card);
+
+    const datasets = [{
+        label:'Actual', data:actVals, borderColor:CONFIG.actualColor, backgroundColor:CONFIG.actualColor,
+        borderWidth:2, pointRadius:2, pointHoverRadius:5, tension:.1, spanGaps:true, order:1
+    }];
+    if (fxState.showDFM) datasets.push({
+        label:'DFM Forecast', data:fcVals, borderColor:CONFIG.forecastColor, backgroundColor:CONFIG.forecastColor,
+        borderWidth:2, borderDash:[5,5], pointRadius:2, pointHoverRadius:5, tension:.1, spanGaps:true, order:2
+    });
+    if (fxState.showBayesian && fc.bay_med?.length) {
+        if (fxState.showCI) {
+            datasets.push({ label:'CI Upper (P95)', data:p95Vals, borderColor:'transparent', backgroundColor:CONFIG.ciColor, borderWidth:0, pointRadius:0, fill:'+1', tension:.1, spanGaps:true, order:5 });
+            datasets.push({ label:'CI Lower (P5)',  data:p5Vals,  borderColor:'transparent', backgroundColor:CONFIG.ciColor, borderWidth:0, pointRadius:0, fill:false, tension:.1, spanGaps:true, order:5 });
+        }
+        datasets.push({ label:'Bayesian Forecast', data:medVals, borderColor:CONFIG.bayesianColor, backgroundColor:CONFIG.bayesianColor, borderWidth:2, borderDash:[4,3], pointRadius:2, pointHoverRadius:5, tension:.1, spanGaps:true, order:3 });
+    }
+
+    const ctx = document.getElementById(chartId)?.getContext('2d');
+    if (!ctx) return;
+
+    fxCharts[chartId] = new Chart(ctx, {
+        type: 'line',
+        data: { labels, datasets },
+        options: {
+            responsive:true, maintainAspectRatio:false,
+            interaction:{ intersect:false, mode:'index' },
+            plugins: {
+                legend:{ display:false },
+                tooltip:{ callbacks:{ label: c => {
+                    if (c.parsed.y === null) return null;
+                    const l = c.dataset.label;
+                    if (l === 'CI Upper (P95)' || l === 'CI Lower (P5)') return null;
+                    return l + ': ' + c.parsed.y.toFixed(4);
+                }}},
+                zoom:{ pan:{enabled:true,mode:'x'}, zoom:{wheel:{enabled:true},pinch:{enabled:true},mode:'x'} }
+            },
+            scales: {
+                x:{ grid:{color:grid}, ticks:{color:textCol,maxRotation:45,minRotation:0,autoSkip:true,maxTicksLimit:12} },
+                y:{ grid:{color:grid}, ticks:{color:textCol} }
             }
         }
     });
 }
 
-function resetZoom(chartId) {
-    if (chartInstances[chartId]) chartInstances[chartId].resetZoom();
-}
+function fxResetZoom(id) { if (fxCharts[id]) fxCharts[id].resetZoom(); }
+window.fxResetZoom = fxResetZoom;
 
-// ==================== Table Sorting ====================
-function setupTableSorting() {
-    const headers = elements.metricsTable.querySelectorAll('th[data-sort]');
-    headers.forEach(function(header) {
-        header.addEventListener('click', function() {
-            const column = header.getAttribute('data-sort');
-            if (state.sortColumn === column) {
-                state.sortDirection = state.sortDirection === 'asc' ? 'desc' : 'asc';
-            } else {
-                state.sortColumn = column;
-                state.sortDirection = 'asc';
-            }
-            headers.forEach(function(h) { h.classList.remove('sorted-asc', 'sorted-desc'); });
-            header.classList.add('sorted-' + state.sortDirection);
-            updateMetricsTable();
+function fxSetupTableSorting() {
+    document.getElementById('metrics-table')?.querySelectorAll('th[data-sort]').forEach(th => {
+        th.addEventListener('click', () => {
+            const col = th.getAttribute('data-sort');
+            fxState.sortDirection = (fxState.sortColumn === col && fxState.sortDirection === 'asc') ? 'desc' : 'asc';
+            fxState.sortColumn = col;
+            document.querySelectorAll('#metrics-table th[data-sort]').forEach(h => h.classList.remove('sorted-asc','sorted-desc'));
+            th.classList.add('sorted-' + fxState.sortDirection);
+            fxUpdateMetricsTable();
         });
     });
 }
 
-// ==================== Event Listeners ====================
-function setupEventListeners() {
-    elements.horizon.addEventListener('change', function(e) {
-        handleHorizonChange(parseInt(e.target.value));
+async function fxInit() {
+    if (fxState.initialized) return;
+    fxShowLoading();
+    try {
+        fxState.varList = await ensureVarList();
+        fxState.initialized = true;
+        fxRenderGroupCheckboxes();
+        fxRenderSeriesCheckboxes();
+        fxUpdate();
+    } catch (e) {
+        console.error('Forecast init error:', e);
+        document.getElementById('charts-container').innerHTML =
+            `<div class="empty-state"><h3>Failed to connect to API</h3><p>${e.message}</p><p>Make sure server.py is running.</p></div>`;
+    } finally {
+        fxHideLoading();
+    }
+
+    document.getElementById('horizon')?.addEventListener('change', e => {
+        fxState.selectedHorizon = parseInt(e.target.value);
+        fxState.fcCache.clear();
+        fxUpdate();
     });
-
-    elements.themeToggle.addEventListener('click', handleThemeToggle);
-
-    elements.selectAllGroups.addEventListener('click', handleSelectAllGroups);
-    elements.clearAllGroups.addEventListener('click', handleClearAllGroups);
-    elements.selectAllSeries.addEventListener('click', handleSelectAllSeries);
-    elements.clearAllSeries.addEventListener('click', handleClearAllSeries);
-
-    elements.seriesSearch.addEventListener('input', function() { renderSeriesCheckboxes(); });
-
-    elements.toggleDFM.addEventListener('click', function() {
-        state.showDFM = !state.showDFM;
-        updateDashboard();
+    document.getElementById('select-all-groups')?.addEventListener('click', () => {
+        fxState.varList.forEach(v => { fxState.selectedGroups.add(v.group_id); const cb=document.getElementById('group-'+v.group_id); if(cb) cb.checked=true; });
+        fxRenderSeriesCheckboxes(); document.getElementById('selected-count').textContent=fxState.selectedSeries.size+' series selected'; fxUpdate();
     });
-
-    elements.toggleBayesian.addEventListener('click', function() {
-        state.showBayesian = !state.showBayesian;
-        updateDashboard();
+    document.getElementById('clear-all-groups')?.addEventListener('click', () => {
+        fxState.selectedGroups.clear(); fxState.selectedSeries.clear();
+        document.querySelectorAll('#group-checkboxes input').forEach(cb => cb.checked=false);
+        fxRenderSeriesCheckboxes(); document.getElementById('selected-count').textContent='0 series selected'; fxUpdate();
     });
-
-    elements.toggleCI.addEventListener('click', function() {
-        if (!state.showBayesian) return;
-        state.showCI = !state.showCI;
-        updateDashboard();
+    document.getElementById('select-all-series')?.addEventListener('click', () => {
+        fxState.varList.filter(v => fxState.selectedGroups.has(v.group_id)).forEach(v => fxState.selectedSeries.add(v.name));
+        fxRenderSeriesCheckboxes(); document.getElementById('selected-count').textContent=fxState.selectedSeries.size+' series selected'; fxUpdate();
     });
-
-    setupTableSorting();
+    document.getElementById('clear-all-series')?.addEventListener('click', () => {
+        fxState.selectedSeries.clear(); fxRenderSeriesCheckboxes();
+        document.getElementById('selected-count').textContent='0 series selected'; fxUpdate();
+    });
+    document.getElementById('series-search')?.addEventListener('input', fxRenderSeriesCheckboxes);
+    document.getElementById('toggle-dfm')?.addEventListener('click',      () => { fxState.showDFM      = !fxState.showDFM;      fxUpdate(); });
+    document.getElementById('toggle-bayesian')?.addEventListener('click', () => { fxState.showBayesian = !fxState.showBayesian; fxUpdate(); });
+    document.getElementById('toggle-ci')?.addEventListener('click',       () => { if (!fxState.showBayesian) return; fxState.showCI = !fxState.showCI; fxUpdate(); });
+    fxSetupTableSorting();
 }
 
-// ==================== Initialize ====================
-async function init() {
-    console.log('Initializing DFM + Bayesian dashboard...');
-    setupEventListeners();
-    updateToggleButtons();
-    await loadAllData();
-    renderGroupCheckboxes();
-    renderSeriesCheckboxes();
-    updateDashboard();
-    console.log('Dashboard initialized');
-}
-
-init();
+// ============================================================
+//  INIT
+// ============================================================
+spagSetupControls();
+spagInitVarSelector();   // pre-populate dropdown on page load

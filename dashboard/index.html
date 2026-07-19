@@ -5,126 +5,254 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DFM Forecast Dashboard</title>
     <link rel="stylesheet" href="css/styles.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <style>
+    *,*::before,*::after{box-sizing:border-box}
+    body{margin:0;font-family:system-ui,-apple-system,sans-serif}
+    .app-shell{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+    .app-nav{display:flex;align-items:center;background:var(--bg-secondary,#f1f5f9);border-bottom:1px solid var(--border-color,#e2e8f0);padding:0 1rem;flex-shrink:0;height:48px}
+    .app-nav .brand{font-weight:700;font-size:1rem;color:var(--text-primary,#1e293b);margin-right:1.5rem;white-space:nowrap}
+    .tab-btn{padding:0 1.1rem;height:48px;border:none;background:none;cursor:pointer;font-size:.9rem;font-weight:500;color:var(--text-secondary,#64748b);border-bottom:3px solid transparent;transition:all .15s}
+    .tab-btn.active{color:var(--accent-color,#2563eb);border-bottom-color:var(--accent-color,#2563eb)}
+    .tab-btn:hover:not(.active){color:var(--text-primary,#1e293b)}
+    .nav-right{margin-left:auto}
+    .tab-panel{display:none;flex:1;overflow:hidden;flex-direction:column}
+    .tab-panel.active{display:flex}
+    /* Spaghetti tab */
+    .spag-shell{display:flex;flex-direction:column;height:100%;overflow:hidden}
+    .spag-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:.75rem;padding:.6rem 1rem;background:var(--bg-secondary,#f8fafc);border-bottom:1px solid var(--border-color,#e2e8f0);flex-shrink:0}
+    .spag-toolbar label{font-size:.78rem;font-weight:600;color:var(--text-secondary,#64748b);white-space:nowrap}
+    .spag-toolbar select{padding:.28rem .55rem;border-radius:6px;font-size:.85rem;border:1px solid var(--border-color,#cbd5e1);background:var(--bg-primary,#fff);color:var(--text-primary,#1e293b);min-width:200px}
+    .h-pills{display:flex;gap:4px}
+    .h-pill{padding:.26rem .7rem;border-radius:20px;font-size:.8rem;font-weight:600;border:1px solid var(--border-color,#cbd5e1);background:var(--bg-primary,#fff);color:var(--text-secondary,#64748b);cursor:pointer;transition:all .12s}
+    .h-pill.active{background:var(--accent-color,#2563eb);border-color:var(--accent-color,#2563eb);color:#fff}
+    .ctrl-group{display:flex;align-items:center;gap:.4rem}
+    .ctrl-group label{font-size:.78rem;font-weight:600;color:var(--text-secondary,#64748b)}
+    .seg-btn{padding:.26rem .65rem;border-radius:6px;font-size:.78rem;font-weight:500;border:1px solid var(--border-color,#cbd5e1);background:var(--bg-primary,#fff);color:var(--text-secondary,#64748b);cursor:pointer;transition:all .12s}
+    .seg-btn.active{background:var(--accent-color,#2563eb);border-color:var(--accent-color,#2563eb);color:#fff}
+    .density-wrap{display:flex;align-items:center;gap:.5rem}
+    .density-wrap input[type=range]{width:100px}
+    .density-val{font-size:.78rem;font-weight:600;min-width:28px;color:var(--text-primary,#1e293b)}
+    .spag-chart-wrap{flex:1;position:relative;overflow:hidden;background:var(--bg-primary,#fff)}
+    .spag-chart-wrap canvas{position:absolute;inset:0;width:100%!important;height:100%!important}
+    .spag-empty,.spag-loading{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.5rem;color:var(--text-secondary,#94a3b8)}
+    .spag-empty h3{margin:0;font-size:1.1rem}
+    .spag-empty p{margin:0;font-size:.85rem}
+    .spag-loading{background:rgba(255,255,255,.7);z-index:10}
+    .spag-legend{display:flex;gap:1.2rem;align-items:center;flex-wrap:wrap;padding:.35rem 1rem;font-size:.78rem;border-top:1px solid var(--border-color,#e2e8f0);flex-shrink:0;background:var(--bg-secondary,#f8fafc)}
+    .leg-item{display:flex;align-items:center;gap:.4rem;color:var(--text-secondary,#64748b)}
+    .leg-line{width:24px;height:3px;border-radius:2px}
+    .leg-actual{background:#111827}
+    .leg-spag-blue{background:none;width:24px;height:0;border-top:2.5px dashed #2563eb}
+    .leg-origin-dot{width:10px;height:10px;border-radius:50%;background:#6b7280;border:1.5px solid #fff;box-shadow:0 0 0 1px #6b7280}
+    .leg-dot{width:8px;height:8px;border-radius:50%;background:#2563eb;border:1.5px solid #fff}
+    .range-wrap{flex-shrink:0;padding:.5rem 1.2rem .6rem;background:var(--bg-secondary,#f8fafc);border-top:1px solid var(--border-color,#e2e8f0)}
+    .range-labels{display:flex;justify-content:space-between;font-size:.72rem;color:var(--text-secondary,#94a3b8);margin-bottom:.2rem}
+    .dual-range{position:relative;height:24px}
+    .dual-range input[type=range]{position:absolute;width:100%;top:4px;pointer-events:none;-webkit-appearance:none;appearance:none;background:transparent;margin:0}
+    .dual-range input[type=range]::-webkit-slider-runnable-track{height:4px;background:var(--border-color,#cbd5e1);border-radius:2px}
+    .dual-range input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;pointer-events:all;width:16px;height:16px;border-radius:50%;background:var(--accent-color,#2563eb);border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.25);margin-top:-6px;cursor:grab}
+    .dual-range input[type=range]::-moz-range-track{height:4px;background:var(--border-color,#cbd5e1);border-radius:2px}
+    .dual-range input[type=range]::-moz-range-thumb{pointer-events:all;width:14px;height:14px;border-radius:50%;background:var(--accent-color,#2563eb);border:2px solid #fff;cursor:grab}
+    .range-track-fill{position:absolute;top:10px;height:4px;border-radius:2px;background:var(--accent-color,#2563eb);pointer-events:none}
+    .range-date-display{display:flex;justify-content:space-between;margin-top:.25rem;font-size:.75rem;font-weight:600;color:var(--text-primary,#1e293b)}
+    .spinner{width:32px;height:32px;border-radius:50%;border:3px solid var(--border-color,#e2e8f0);border-top-color:var(--accent-color,#2563eb);animation:spin .7s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    /* Forecast tab */
+    #tab-forecast .container{height:100%;display:flex;flex-direction:column;overflow:hidden}
+    #tab-forecast .main-content{flex:1;display:flex;overflow:hidden}
+    /* Dark */
+    body.dark-theme .app-nav{background:#1e293b;border-color:#334155}
+    body.dark-theme .brand{color:#f1f5f9}
+    body.dark-theme .tab-btn{color:#94a3b8}
+    body.dark-theme .tab-btn.active{color:#60a5fa;border-bottom-color:#60a5fa}
+    body.dark-theme .spag-toolbar,body.dark-theme .spag-legend,body.dark-theme .range-wrap{background:#1e293b;border-color:#334155}
+    body.dark-theme .spag-toolbar select,body.dark-theme .h-pill,body.dark-theme .seg-btn{background:#0f172a;border-color:#334155;color:#cbd5e1}
+    body.dark-theme .h-pill.active,body.dark-theme .seg-btn.active{background:#3b82f6;border-color:#3b82f6;color:#fff}
+    body.dark-theme .spag-chart-wrap{background:#0f172a}
+    body.dark-theme .spag-loading{background:rgba(15,23,42,.75)}
+    body.dark-theme .density-val{color:#f1f5f9}
+    </style>
 </head>
 <body class="light-theme">
-    <div class="container">
-        <!-- Header -->
-        <header class="header">
-            <h1>DFM Forecast Dashboard</h1>
-            <div class="header-controls">
-                <div class="horizon-select">
-                    <label for="horizon">Horizon:</label>
-                    <select id="horizon">
-                        <option value="1">1 Month</option>
-                        <option value="4">4 Months</option>
-                        <option value="12" selected>12 Months</option>
-                        <option value="24">24 Months</option>
-                        <option value="60">60 Months</option>
-                    </select>
-                </div>
+<div class="app-shell">
 
-                <!-- Method visibility toggles -->
-                <div class="method-toggles">
-                    <span class="method-toggles-label">Show:</span>
-                    <button id="toggle-dfm" class="toggle-btn toggle-active" title="Toggle DFM forecast">
-                        <span class="toggle-dot dfm-dot"></span> DFM
-                    </button>
-                    <button id="toggle-bayesian" class="toggle-btn toggle-active" title="Toggle Bayesian forecast">
-                        <span class="toggle-dot bay-dot"></span> Bayesian
-                    </button>
-                    <button id="toggle-ci" class="toggle-btn toggle-active" title="Toggle 90% confidence interval">
-                        <span class="toggle-dot ci-dot"></span> 90% CI
-                    </button>
-                </div>
+    <nav class="app-nav">
+        <span class="brand">DFM Dashboard</span>
+        <button class="tab-btn active" data-tab="spaghetti">Spaghetti Backtest</button>
+        <button class="tab-btn"        data-tab="forecast">DFM Forecast</button>
+        <div class="nav-right">
+            <button id="theme-toggle" class="theme-btn">Dark Mode</button>
+        </div>
+    </nav>
 
-                <button id="theme-toggle" class="theme-btn">Dark Mode</button>
+    <!-- TAB 1: Spaghetti -->
+    <div id="tab-spaghetti" class="tab-panel active">
+        <div class="spag-shell">
+            <div class="spag-toolbar">
+                <div style="display:flex;align-items:center;gap:.4rem">
+                    <label for="spag-var">Variable</label>
+                    <select id="spag-var"><option value="">— loading… —</option></select>
+                </div>
+                <div style="display:flex;align-items:center;gap:.4rem">
+                    <label>Horizon</label>
+                    <div class="h-pills">
+                        <button class="h-pill active" data-h="1">1M</button>
+                        <button class="h-pill"        data-h="3">1Q</button>
+                        <button class="h-pill"        data-h="12">1Y</button>
+                        <button class="h-pill"        data-h="24">2Y</button>
+                        <button class="h-pill"        data-h="60">5Y</button>
+                    </div>
+                </div>
+                <div class="ctrl-group">
+                    <label>Origins every</label>
+                    <button class="seg-btn active" data-freq="1">1Y</button>
+                    <button class="seg-btn"        data-freq="5">5Y</button>
+                </div>
+                <div class="ctrl-group">
+                    <label>Paths</label>
+                    <div class="density-wrap">
+                        <input type="range" id="spag-density" min="0" max="200" value="50" step="5">
+                        <span class="density-val" id="density-val">50</span>
+                    </div>
+                </div>
+                <div class="ctrl-group">
+                    <label>CI Band</label>
+                    <button class="seg-btn active" id="ci-toggle">On</button>
+                </div>
+                <div class="ctrl-group">
+                    <label>Realized</label>
+                    <button class="seg-btn active" id="realized-toggle">On</button>
+                </div>
             </div>
-        </header>
 
-        <div class="main-content">
-            <!-- Left Sidebar -->
-            <aside class="sidebar">
-                <div class="sidebar-section">
-                    <h3>Select Groups</h3>
-                    <div class="group-controls">
-                        <button id="select-all-groups" class="btn-small">Select All</button>
-                        <button id="clear-all-groups" class="btn-small">Clear All</button>
-                    </div>
-                    <div id="group-checkboxes" class="checkbox-list">
-                        <!-- Generated by JS -->
-                    </div>
+            <div class="spag-chart-wrap">
+                <div class="spag-empty" id="spag-empty">
+                    <h3>Select a variable to begin</h3>
+                    <p>Choose a FRED-MD indicator from the dropdown above</p>
                 </div>
-
-                <div class="sidebar-section">
-                    <h3>Select Series</h3>
-                    <div class="series-controls">
-                        <button id="select-all-series" class="btn-small">Select All</button>
-                        <button id="clear-all-series" class="btn-small">Clear All</button>
-                    </div>
-                    <div class="series-search">
-                        <input type="text" id="series-search" placeholder="Search series...">
-                    </div>
-                    <div id="series-checkboxes" class="checkbox-list series-list">
-                        <!-- Generated by JS -->
-                    </div>
-                </div>
-
-                <div class="sidebar-footer">
-                    <span id="selected-count">0 series selected</span>
-                </div>
-            </aside>
-
-            <!-- Right Content Area -->
-            <main class="content">
-                <!-- Metrics Section -->
-                <section class="metrics-section">
-                    <h2>Summary Metrics</h2>
-                    <div class="table-container">
-                        <table id="metrics-table">
-                            <thead>
-                                <tr>
-                                    <th rowspan="2" data-sort="series">Series <span class="sort-icon"></span></th>
-                                    <th rowspan="2" data-sort="group">Group <span class="sort-icon"></span></th>
-                                    <th colspan="3" class="method-header dfm-header">DFM Forecast</th>
-                                    <th colspan="3" class="method-header bay-header">Bayesian Forecast</th>
-                                </tr>
-                                <tr>
-                                    <th data-sort="dfm_rmse">RMSE <span class="sort-icon"></span></th>
-                                    <th data-sort="dfm_mape">MAPE (%) <span class="sort-icon"></span></th>
-                                    <th data-sort="dfm_correlation">Corr. <span class="sort-icon"></span></th>
-                                    <th data-sort="bay_rmse">RMSE <span class="sort-icon"></span></th>
-                                    <th data-sort="bay_mape">MAPE (%) <span class="sort-icon"></span></th>
-                                    <th data-sort="bay_correlation">Corr. <span class="sort-icon"></span></th>
-                                </tr>
-                            </thead>
-                            <tbody id="metrics-body">
-                                <!-- Generated by JS -->
-                            </tbody>
-                        </table>
-                    </div>
-                </section>
-
-                <!-- Charts Section -->
-                <section class="charts-section">
-                    <h2>Time Series Charts</h2>
-                    <div id="charts-container">
-                        <!-- Generated by JS -->
-                    </div>
-                </section>
-
-                <!-- Loading Overlay -->
-                <div id="loading" class="loading-overlay">
+                <div class="spag-loading" id="spag-loading" style="display:none">
                     <div class="spinner"></div>
-                    <p>Loading data...</p>
+                    <p id="spag-loading-msg">Loading…</p>
                 </div>
-            </main>
+                <canvas id="spag-canvas" style="display:none"></canvas>
+            </div>
+
+            <div class="spag-legend" id="spag-legend" style="display:none">
+                <div class="leg-item"><div class="leg-line leg-actual"></div><span>Actual</span></div>
+                <div class="leg-item"><div class="leg-line leg-spag-blue"></div><span>Forecast paths (dashed, colour per origin)</span></div>
+                <div class="leg-item"><div class="leg-origin-dot"></div><span>Origin point</span></div>
+                <div class="leg-item"><div class="leg-dot"></div><span>Realized</span></div>
+                <div id="spag-stat-info" style="margin-left:auto;font-size:.75rem;color:var(--text-secondary,#64748b)"></div>
+            </div>
+
+            <div class="range-wrap" id="range-wrap" style="display:none">
+                <div class="range-labels">
+                    <span>Date range</span>
+                    <span style="font-style:italic;font-size:.72rem">Drag handles to zoom</span>
+                </div>
+                <div class="dual-range">
+                    <div class="range-track-fill" id="range-fill"></div>
+                    <input type="range" id="range-lo" min="0" max="1000" value="0">
+                    <input type="range" id="range-hi" min="0" max="1000" value="1000">
+                </div>
+                <div class="range-date-display">
+                    <span id="range-lo-label">—</span>
+                    <span id="range-hi-label">—</span>
+                </div>
+            </div>
         </div>
     </div>
 
-    <script src="js/app.js"></script>
+    <!-- TAB 2: DFM Forecast -->
+    <div id="tab-forecast" class="tab-panel">
+        <div class="container">
+            <header class="header">
+                <h1>DFM Forecast Dashboard</h1>
+                <div class="header-controls">
+                    <div class="horizon-select">
+                        <label for="horizon">Horizon:</label>
+                        <select id="horizon">
+                            <option value="1">1 Month</option>
+                            <option value="3">3 Months</option>
+                            <option value="12" selected>12 Months</option>
+                            <option value="24">24 Months</option>
+                            <option value="60">60 Months</option>
+                        </select>
+                    </div>
+                    <div class="method-toggles">
+                        <span class="method-toggles-label">Show:</span>
+                        <button id="toggle-dfm"      class="toggle-btn toggle-active"><span class="toggle-dot dfm-dot"></span> DFM</button>
+                        <button id="toggle-bayesian" class="toggle-btn toggle-active"><span class="toggle-dot bay-dot"></span> Bayesian</button>
+                        <button id="toggle-ci"       class="toggle-btn toggle-active"><span class="toggle-dot ci-dot"></span> 90% CI</button>
+                    </div>
+                </div>
+            </header>
+            <div class="main-content">
+                <aside class="sidebar">
+                    <div class="sidebar-section">
+                        <h3>Select Groups</h3>
+                        <div class="group-controls">
+                            <button id="select-all-groups" class="btn-small">Select All</button>
+                            <button id="clear-all-groups"  class="btn-small">Clear All</button>
+                        </div>
+                        <div id="group-checkboxes" class="checkbox-list"></div>
+                    </div>
+                    <div class="sidebar-section">
+                        <h3>Select Series</h3>
+                        <div class="series-controls">
+                            <button id="select-all-series" class="btn-small">Select All</button>
+                            <button id="clear-all-series"  class="btn-small">Clear All</button>
+                        </div>
+                        <div class="series-search">
+                            <input type="text" id="series-search" placeholder="Search series…">
+                        </div>
+                        <div id="series-checkboxes" class="checkbox-list series-list"></div>
+                    </div>
+                    <div class="sidebar-footer">
+                        <span id="selected-count">0 series selected</span>
+                    </div>
+                </aside>
+                <main class="content">
+                    <section class="metrics-section">
+                        <h2>Summary Metrics</h2>
+                        <div class="table-container">
+                            <table id="metrics-table">
+                                <thead>
+                                    <tr>
+                                        <th rowspan="2" data-sort="series">Series <span class="sort-icon"></span></th>
+                                        <th rowspan="2" data-sort="group">Group <span class="sort-icon"></span></th>
+                                        <th colspan="3" class="method-header dfm-header">DFM Forecast</th>
+                                        <th colspan="3" class="method-header bay-header">Bayesian Forecast</th>
+                                    </tr>
+                                    <tr>
+                                        <th data-sort="dfm_rmse">RMSE <span class="sort-icon"></span></th>
+                                        <th data-sort="dfm_mape">MAPE (%) <span class="sort-icon"></span></th>
+                                        <th data-sort="dfm_correlation">Corr. <span class="sort-icon"></span></th>
+                                        <th data-sort="bay_rmse">RMSE <span class="sort-icon"></span></th>
+                                        <th data-sort="bay_mape">MAPE (%) <span class="sort-icon"></span></th>
+                                        <th data-sort="bay_correlation">Corr. <span class="sort-icon"></span></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="metrics-body"></tbody>
+                            </table>
+                        </div>
+                    </section>
+                    <section class="charts-section">
+                        <h2>Time Series Charts</h2>
+                        <div id="charts-container"></div>
+                    </section>
+                    <div id="loading" class="loading-overlay">
+                        <div class="spinner"></div><p>Loading data…</p>
+                    </div>
+                </main>
+            </div>
+        </div>
+    </div>
+
+</div>
+<script src="js/app.js"></script>
 </body>
 </html>

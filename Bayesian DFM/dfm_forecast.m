@@ -57,8 +57,8 @@ addParameter(p, 'missing',       false);
 addParameter(p, 'quiet',         false);
 
 % Allow positional call: dfm_forecast(input, output, ...)
-if nargin >= 2 && ischar(varargin{1}) && ~contains(varargin{1},'=') ...
-        && ~startsWith(varargin{1}, '-')
+if nargin >= 2 && (ischar(varargin{1}) || isstring(varargin{1})) ...
+        && ~contains(varargin{1},'=') && ~startsWith(varargin{1}, '-')
     parse(p, varargin{1}, varargin{2}, varargin{3:end});
 else
     parse(p, varargin{:});
@@ -464,8 +464,8 @@ for step = 1:horizon
         end
 
         mean_row = mean(draws_orig, 1, 'omitnan');
-        p5_row   = prctile(draws_orig, 5,  1);
-        p95_row  = prctile(draws_orig, 95, 1);
+        p5_row   = prctile_base(draws_orig, 5,  1);
+        p95_row  = prctile_base(draws_orig, 95, 1);
 
         mean_mat(step, :) = mean_row;
         p5_mat(step, :)   = p5_row;
@@ -1033,10 +1033,6 @@ else
     %% BAYESIAN MODEL - FULL POSTERIOR PREDICTIVE DISTRIBUTION
     n_post = size(mdl.Lambda_store, 1);
     
-    if n_sims > 500
-        fprintf('      Generating %d forecast paths using full posterior...\n', n_sims);
-    end
-    
     for i = 1:n_sims
         % =====================================================================
         % STEP 1: Sample a complete parameter set from the joint posterior
@@ -1263,13 +1259,9 @@ else
         out(i, :, :) = Y_forecast;
         
         % Progress reporting
-        if mod(i, 1000) == 0 && n_sims > 500
-            fprintf('        ... %d/%d paths complete\n', i, n_sims);
+        if mod(i, 1000) == 0
+            % (progress reported by caller)
         end
-    end
-    
-    if n_sims > 500
-        fprintf('      Forecast simulation complete!\n');
     end
 end
 end
@@ -1531,6 +1523,39 @@ while true
         x = d * v * b; return
     end
 end
+end
+
+
+% =========================================================================
+%  TOOLBOX-FREE PERCENTILE  (replaces Statistics Toolbox prctile)
+% =========================================================================
+function p = prctile_base(X, pct, dim)
+% Compute percentile along dimension dim using linear interpolation.
+% Matches the behaviour of prctile(X, pct, dim) from the Statistics Toolbox.
+if nargin < 3, dim = 1; end
+
+sz   = size(X);
+n    = sz(dim);
+
+% Sort along the requested dimension
+Xs = sort(X, dim, 'ascend');
+
+% Build fractional index using the same "hazen" formula as prctile
+frac = pct / 100 * n - 0.5;   % 0-based fractional index
+lo   = floor(frac);
+hi   = ceil(frac);
+w    = frac - lo;              % interpolation weight
+
+lo = max(lo, 0);
+hi = min(hi, n - 1);
+
+% Build index arrays
+idx_lo = repmat({':'}, 1, ndims(X));
+idx_hi = repmat({':'}, 1, ndims(X));
+idx_lo{dim} = lo + 1;   % MATLAB 1-based
+idx_hi{dim} = hi + 1;
+
+p = (1 - w) .* Xs(idx_lo{:}) + w .* Xs(idx_hi{:});
 end
 
 
